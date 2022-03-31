@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Icon=vivokey_codes
+Exec=/usr/bin/vivokey_codes
+X-GNOME-Autostart-enabled=false
+NoDisplay=false
+Hidden=false
+Name=Vivokey Codes
+Comment=Vivokey Codes OTP authenticator
+X-GNOME-Autostart-Delay=5
