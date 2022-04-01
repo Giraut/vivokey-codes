@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 """
-GTK Authenticator to read TOTP codes from a Vivokey OTP applet, display them
+GTK authenticator to read TOTP codes from a Vivokey OTP applet, display them
 and copy them into the clipboard.
 
 This program starts minimized in the system tray. Click on the icon then select
