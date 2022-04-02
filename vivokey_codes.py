@@ -31,7 +31,7 @@ auto_close_idle_window_timeout = 120 #s
 auto_close_idle_window_countdown = 30 #s
 
 title = "Vivokey Codes"
-icon = "/usr/share/icons/vivokey_codes.png"
+icon = "vivokey_codes"
 min_visible_list_lines = 10
 
 tray_item_id = "vivokey_codes"
@@ -166,9 +166,11 @@ class authenticator(Gtk.Window):
 
     # Set the authenticator's icon. Soft-fail as lack of icon is only cosmetic
     try:
-      self.set_icon_from_file(icon)
-    except:
-      print("WARNING: could not load icon {}!".format(icon), file = sys.stderr)
+      self.set_icon(Gtk.IconTheme.get_default().load_icon(icon, 64, 0))
+
+    except Exception as e:
+      print("WARNING: error loading icon {}: {}!".format(icon, e),
+		file = sys.stderr)
 
     # Set the window's border width
     self.set_border_width(10)
