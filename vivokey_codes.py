@@ -192,7 +192,7 @@ class authenticator(Gtk.Window):
     self.treeview = Gtk.TreeView(model = self.filter)
     self.treeview_select = self.treeview.get_selection()
     self.treeview_select.connect("changed", self.on_treeview_selection)
-    self.treeview.connect("button_press_event", self.refresh_autoclose_tstamp)
+    self.treeview.connect("button_press_event", self.on_clicked)
 
     # Get and set the text renderer
     renderer = Gtk.CellRendererText()
@@ -221,8 +221,7 @@ class authenticator(Gtk.Window):
       self.reader_entry.set_text(self.reader)
     self.reader_entry.connect("activate", self.on_cfg_entry_update)
     self.reader_entry.connect("changed", self.on_cfg_entry_update)
-    self.reader_entry.connect("button_press_event",
-				self.refresh_autoclose_tstamp)
+    self.reader_entry.connect("button_press_event", self.on_clicked)
 
     self.reader_entry_row = Gtk.HBox()
     self.reader_entry_row.pack_start(self.reader_entry_label,
@@ -243,8 +242,7 @@ class authenticator(Gtk.Window):
     self.oath_pwd_entry.set_visibility(False)
     self.oath_pwd_entry.connect("activate", self.on_cfg_entry_update)
     self.oath_pwd_entry.connect("changed", self.on_cfg_entry_update)
-    self.oath_pwd_entry.connect("button_press_event",
-				self.refresh_autoclose_tstamp)
+    self.oath_pwd_entry.connect("button_press_event", self.on_clicked)
 
     self.oath_pwd_entry_checkbtn = Gtk.CheckButton(label = "remember")
     self.oath_pwd_entry_checkbtn.set_active(self.oath_pwd_remember)
@@ -275,8 +273,7 @@ class authenticator(Gtk.Window):
     self.filter_entry.set_placeholder_text("None")
     self.filter_entry.connect("activate", self.on_filter_entry_update)
     self.filter_entry.connect("changed", self.on_filter_entry_update)
-    self.filter_entry.connect("button_press_event",
-				self.refresh_autoclose_tstamp)
+    self.filter_entry.connect("button_press_event", self.on_clicked)
 
     self.filter_entry_label = Gtk.Label(label = "Filter:")
 
@@ -319,10 +316,9 @@ class authenticator(Gtk.Window):
     # Focus on the filter entry by default
     self.filter_entry.grab_focus()
 
-    # Make any click inside the window outside of the above widgets update the
-    # auto-close timestamp too
+    # Also catch clicks inside the window, outside of the above widgets
     self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-    self.connect("button-press-event", self.refresh_autoclose_tstamp)
+    self.connect("button-press-event", self.on_clicked)
 
     # Refresh the auto-close timestamp for the first time
     self.refresh_autoclose_tstamp()
@@ -335,6 +331,11 @@ class authenticator(Gtk.Window):
 
     # Show the window
     self.show_all()
+
+    # Ask the window manager to keep it above all the other windows until we
+    # regain focus
+    self.set_keep_above(True)
+    self.window_kept_above = True
 
 
 
@@ -377,7 +378,7 @@ class authenticator(Gtk.Window):
 
 
 
-  def refresh_autoclose_tstamp(self, win = None, evt = None):
+  def refresh_autoclose_tstamp(self):
     """Recalculate the timestamp at which the window should be automatically
     closed
     """
@@ -386,10 +387,31 @@ class authenticator(Gtk.Window):
 
 
 
+  def unset_keep_above(self):
+    """ If we requested that the window manager keep us above all other windows,
+    release that request
+    """
+
+    if self.window_kept_above:
+      self.set_keep_above(False)
+      self.window_kept_above = False
+
+
+
+  def on_clicked(self, w, e):
+    """Called when clickable widgets get clicked on
+    """
+
+    self.unset_keep_above()
+    self.refresh_autoclose_tstamp()
+
+
+
   def on_treeview_selection(self, selection):
     """Called when a treeview node is seleced
     """
 
+    self.unset_keep_above()
     self.refresh_autoclose_tstamp()
 
     tree_model, i = selection.get_selected()
@@ -411,6 +433,7 @@ class authenticator(Gtk.Window):
     """Called when any of the configuration entries are changed or activated
     """
 
+    self.unset_keep_above()
     self.refresh_autoclose_tstamp()
 
     self.reader = self.reader_entry.get_text()
@@ -444,6 +467,7 @@ class authenticator(Gtk.Window):
     """Called when the filter entry is changed or activated
     """
 
+    self.unset_keep_above()
     self.refresh_autoclose_tstamp()
 
     # Get the filter text and refilter if needed
