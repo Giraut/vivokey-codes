@@ -31,7 +31,7 @@ auto_close_idle_window_timeout = 120 #s
 auto_close_idle_window_countdown = 30 #s
 
 title = "Vivokey Codes"
-icon = "vivokey_codes.png"
+icon = "/usr/share/icons/vivokey_codes.png"
 min_visible_list_lines = 10
 
 tray_item_id = "vivokey_codes"
@@ -73,14 +73,8 @@ class tray_item():
 
     self.authenticator_running = False
 
-    # Strip the extension from the icon's filename, because while
-    # Gtk.Window.self.set_icon_from_file() takes the full filename,
-    # AppIndicator3.Indicator.new() and .set_icon() only take the root.
-    # Yay consistency...
-    icon_root = os.path.splitext(icon)[0]
-
     # Create the app indicator
-    self.ind = AppIndicator3.Indicator.new(tray_item_id, icon_root,
+    self.ind = AppIndicator3.Indicator.new(tray_item_id, icon,
 						AppIndicator3.IndicatorCategory.
 						APPLICATION_STATUS)
     self.ind.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
