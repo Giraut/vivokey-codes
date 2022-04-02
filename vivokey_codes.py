@@ -70,6 +70,7 @@ class tray_item():
     """
 
     self.vkman = vkman
+    self.cfgfile = os.path.expanduser(config_file)
 
     self.authenticator_running = False
 
@@ -110,27 +111,14 @@ class tray_item():
 
     self.authenticator_running = True
 
-    # Try to read the configuration file, fail silently
-    cfgfile = os.path.expanduser(config_file)
-
-    reader = None
-    oath_pwd = None
-    oath_pwd_remember = False
-
-    try:
-      with open(cfgfile, "r") as f:
-
-        params = f.read().splitlines()
-
-        if len(params) == 3 and params[2] in ("Remember", "Forget"):
-          reader, oath_pwd, oath_pwd_remember = params
-          oath_pwd_remember = oath_pwd_remember == "Remember"
-
-    except:
-      pass
-
     # Start the authenticator
-    authenticator(self.vkman, cfgfile, reader, oath_pwd, oath_pwd_remember)
+    authenticator(self.vkman, self.cfgfile, self.authenticator_stop)
+
+
+
+  def authenticator_stop(self):
+    """Callback for the authenticator to notify us that it's stopped
+    """
 
     self.authenticator_running = False
 
@@ -140,7 +128,7 @@ class authenticator(Gtk.Window):
   """Main authenticator application
   """
 
-  def __init__(self, vkman, cfgfile, reader, oath_pwd, oath_pwd_remember):
+  def __init__(self, vkman, cfgfile, stop_callback):
     """__init__ method
     """
 
@@ -148,21 +136,36 @@ class authenticator(Gtk.Window):
 
     self.vkman = vkman
     self.cfgfile = cfgfile
+    self.stop_callback = stop_callback
 
-    self.reader = reader
-    self.oath_pwd = oath_pwd
-    self.oath_pwd_remember = oath_pwd_remember
+    # Get the clipboard
+    self.clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+
+    self.vkman_proc = None
+
+    # Try to read the configuration file, fail silently
+    self.reader = None
+    self.oath_pwd = None
+    self.oath_pwd_remember = False
+
+    try:
+      with open(self.cfgfile, "r") as f:
+
+        params = f.read().splitlines()
+
+        if len(params) == 3 and params[2] in ("Remember", "Forget"):
+          self.reader, self.oath_pwd, self.oath_pwd_remember = params
+          self.oath_pwd_remember = oath_pwd_remember == "Remember"
+
+    except:
+      pass
 
     self.current_filter = ""
     self.statusbar_messages = [None] * 3
 
-    self.vkman_proc = None
     self.stop_timeout_func = False
 
     self.last_scan_was_error = False
-
-    # Get the clipboard
-    self.clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
 
     # Set the authenticator's icon. Soft-fail as lack of icon is only cosmetic
     try:
@@ -474,6 +477,10 @@ class authenticator(Gtk.Window):
 
       # If we've been asked to stop, do so
       if self.stop_timeout_func:
+
+        # Notify the indicator app that we've stopped
+        self.stop_callback()
+
         return False
 
       # Start vkman
