@@ -31,9 +31,10 @@ auto_close_idle_window_timeout = 120 #s
 auto_close_idle_window_countdown = 30 #s
 
 title = "Vivokey Codes"
-tray_item_id = "vivokey_codes"
-tray_item_icon = "vivokey_codes"
+icon = "vivokey_codes.png"
 min_visible_list_lines = 10
+
+tray_item_id = "vivokey_codes"
 
 sample_issuer_string = "Acme, Inc. (International Foobar Division)"
 sample_account_string = "oleg.mcnoleg@acme-incorporated-international.com"
@@ -44,6 +45,7 @@ sample_code_string = "0123456789"
 ### Modules
 import re
 import os
+import sys
 import argparse
 from time import time
 from subprocess import Popen, PIPE
@@ -71,8 +73,14 @@ class tray_item():
 
     self.authenticator_running = False
 
+    # Strip the extension from the icon's filename, because while
+    # Gtk.Window.self.set_icon_from_file() takes the full filename,
+    # AppIndicator3.Indicator.new() and .set_icon() only take the root.
+    # Yay consistency...
+    icon_root = os.path.splitext(icon)[0]
+
     # Create the app indicator
-    self.ind = AppIndicator3.Indicator.new(tray_item_id, tray_item_icon,
+    self.ind = AppIndicator3.Indicator.new(tray_item_id, icon_root,
 						AppIndicator3.IndicatorCategory.
 						APPLICATION_STATUS)
     self.ind.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
@@ -161,6 +169,12 @@ class authenticator(Gtk.Window):
 
     # Get the clipboard
     self.clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+
+    # Set the authenticator's icon. Soft-fail as lack of icon is only cosmetic
+    try:
+      self.set_icon_from_file(icon)
+    except:
+      print("WARNING: could not load icon {}!".format(icon), file = sys.stderr)
 
     # Set the window's border width
     self.set_border_width(10)
