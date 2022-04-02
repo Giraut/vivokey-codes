@@ -552,7 +552,7 @@ class authenticator(Gtk.Window):
       if self.set_statusbar(0, "Successfully read {} codes".format(len(iacs))):
         self.refresh_autoclose_tstamp()
 
-    self.last_scan_was_error = False
+      self.last_scan_was_error = False
 
     return True
 
