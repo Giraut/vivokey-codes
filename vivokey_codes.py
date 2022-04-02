@@ -27,6 +27,9 @@ default_vkman = "/usr/bin/vkman"
 default_reader = "0"
 config_file = "~/.vivokey_codes.cfg"
 
+auto_close_idle_window_timeout = 120 #s
+auto_close_idle_window_countdown = 30 #s
+
 title = "Vivokey Codes"
 tray_item_id = "vivokey_codes"
 tray_item_icon = "vivokey_codes"
@@ -41,9 +44,11 @@ sample_code_string = "0123456789"
 ### Modules
 import re
 import os
-import gi
 import argparse
+from time import time
 from subprocess import Popen, PIPE
+
+import gi
 
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, Gdk, GLib
@@ -53,24 +58,93 @@ from gi.repository import AppIndicator3
 
 
 
-### Globals
-vkman = default_vkman
-authenticator_running = False
-stop_timeout_func = False
-
-
-
 ### Classes
-class authenticator(Gtk.Window):
-  """Authenticator application proper
+class tray_item():
+  """Authenticator tray item
   """
 
-  def __init__(self, cfgfile, reader, oath_pwd, oath_pwd_remember):
+  def __init__(self, vkman):
+    """__init__ method
+    """
+
+    self.vkman = vkman
+
+    self.authenticator_running = False
+
+    # Create the app indicator
+    self.ind = AppIndicator3.Indicator.new(tray_item_id, tray_item_icon,
+						AppIndicator3.IndicatorCategory.
+						APPLICATION_STATUS)
+    self.ind.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+    self.ind.set_title(title)
+
+    # Create and set the app indicator's menu
+    self.menu = Gtk.Menu()
+
+    self.cmd_getcodes = Gtk.MenuItem(label = 'Get codes')
+    self.cmd_getcodes.connect('activate', self.open_authenticator_window)
+    self.menu.append(self.cmd_getcodes)
+
+    self.exit = Gtk.MenuItem(label = 'Exit')
+    self.exit.connect('activate', Gtk.main_quit)
+    self.menu.append(self.exit)
+
+    self.menu.show_all()
+
+    self.ind.set_menu(self.menu)
+
+    # Run the app indicator
+    Gtk.main()
+
+
+
+  def open_authenticator_window(self, _):
+    """Open the authenticator window
+    """
+
+    # Only run one instance
+    if self.authenticator_running:
+      return
+
+    self.authenticator_running = True
+
+    # Try to read the configuration file, fail silently
+    cfgfile = os.path.expanduser(config_file)
+
+    reader = None
+    oath_pwd = None
+    oath_pwd_remember = False
+
+    try:
+      with open(cfgfile, "r") as f:
+
+        params = f.read().splitlines()
+
+        if len(params) == 3 and params[2] in ("Remember", "Forget"):
+          reader, oath_pwd, oath_pwd_remember = params
+          oath_pwd_remember = oath_pwd_remember == "Remember"
+
+    except:
+      pass
+
+    # Start the authenticator
+    authenticator(self.vkman, cfgfile, reader, oath_pwd, oath_pwd_remember)
+
+    self.authenticator_running = False
+
+
+
+class authenticator(Gtk.Window):
+  """Main authenticator application
+  """
+
+  def __init__(self, vkman, cfgfile, reader, oath_pwd, oath_pwd_remember):
     """__init__ method
     """
 
     super().__init__(title = title)
 
+    self.vkman = vkman
     self.cfgfile = cfgfile
 
     self.reader = reader
@@ -78,17 +152,18 @@ class authenticator(Gtk.Window):
     self.oath_pwd_remember = oath_pwd_remember
 
     self.current_filter = ""
+    self.statusbar_messages = [None] * 3
 
     self.vkman_proc = None
+    self.stop_timeout_func = False
 
-    self.set_border_width(10)
+    self.last_scan_was_error = False
 
     # Get the clipboard
     self.clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
 
-    # Set up the grid in which the panel's elements are to be positioned
-    self.grid = Gtk.Grid()
-    self.add(self.grid)
+    # Set the window's border width
+    self.set_border_width(10)
 
     # Create the liststore model for the list of accounts / codes
     self.liststore = Gtk.ListStore(str, str, str)
@@ -104,6 +179,9 @@ class authenticator(Gtk.Window):
     self.treeview = Gtk.TreeView(model = self.filter)
     self.treeview_select = self.treeview.get_selection()
     self.treeview_select.connect("changed", self.on_treeview_selection)
+    self.treeview.connect("button_press_event", self.refresh_autoclose_tstamp)
+
+    # Get and set the text renderer
     renderer = Gtk.CellRendererText()
     renderer.set_fixed_height_from_font(1)
 
@@ -128,8 +206,10 @@ class authenticator(Gtk.Window):
     self.reader_entry.set_placeholder_text(default_reader)
     if self.reader:
       self.reader_entry.set_text(self.reader)
-    self.reader_entry.connect("activate", self.on_entry_update)
-    self.reader_entry.connect("changed", self.on_entry_update)
+    self.reader_entry.connect("activate", self.on_cfg_entry_update)
+    self.reader_entry.connect("changed", self.on_cfg_entry_update)
+    self.reader_entry.connect("button_press_event",
+				self.refresh_autoclose_tstamp)
 
     self.reader_entry_row = Gtk.HBox()
     self.reader_entry_row.pack_start(self.reader_entry_label,
@@ -148,12 +228,14 @@ class authenticator(Gtk.Window):
     if self.oath_pwd:
       self.oath_pwd_entry.set_text(self.oath_pwd)
     self.oath_pwd_entry.set_visibility(False)
-    self.oath_pwd_entry.connect("activate", self.on_entry_update)
-    self.oath_pwd_entry.connect("changed", self.on_entry_update)
+    self.oath_pwd_entry.connect("activate", self.on_cfg_entry_update)
+    self.oath_pwd_entry.connect("changed", self.on_cfg_entry_update)
+    self.oath_pwd_entry.connect("button_press_event",
+				self.refresh_autoclose_tstamp)
 
     self.oath_pwd_entry_checkbtn = Gtk.CheckButton(label = "remember")
     self.oath_pwd_entry_checkbtn.set_active(self.oath_pwd_remember)
-    self.oath_pwd_entry_checkbtn.connect("toggled", self.on_entry_update)
+    self.oath_pwd_entry_checkbtn.connect("toggled", self.on_cfg_entry_update)
 
     self.oath_pwd_entry_row = Gtk.HBox()
     self.oath_pwd_entry_row.pack_start(self.oath_pwd_entry_label,
@@ -166,11 +248,22 @@ class authenticator(Gtk.Window):
 						expand = False, fill = False,
 						padding = 1)
 
+    # Put the treeview in a scrolled window
+    self.scrollable_treelist = Gtk.ScrolledWindow()
+    self.scrollable_treelist.set_hexpand(True)
+    self.scrollable_treelist.set_vexpand(True)
+    self.scrollable_treelist.set_min_content_width(sum(text_widths))
+    self.scrollable_treelist.set_min_content_height(1.5 * text_height * \
+							min_visible_list_lines)
+    self.scrollable_treelist.add(self.treeview)
+
     # Create the text entry for the filter string, with a label
     self.filter_entry = Gtk.Entry()
     self.filter_entry.set_placeholder_text("None")
-    self.filter_entry.connect("activate", self.on_entry_update)
-    self.filter_entry.connect("changed", self.on_entry_update)
+    self.filter_entry.connect("activate", self.on_filter_entry_update)
+    self.filter_entry.connect("changed", self.on_filter_entry_update)
+    self.filter_entry.connect("button_press_event",
+				self.refresh_autoclose_tstamp)
 
     self.filter_entry_label = Gtk.Label(label = "Filter:")
 
@@ -188,20 +281,15 @@ class authenticator(Gtk.Window):
     self.statusbar_with_labeled_frame = Gtk.Frame(label = "Status")
     self.statusbar_with_labeled_frame.add(self.statusbar)
 
-    # Put everything together: put the treeview in a scrollwindow and the text
-    # entry rows above and below
+    # Put everything together in a grid
+    self.grid = Gtk.Grid()
+    self.add(self.grid)
+
     self.grid.attach(self.reader_entry_row, 0, 0, 1, 10)
 
     self.grid.attach_next_to(self.oath_pwd_entry_row,
 				self.reader_entry_row,
 				Gtk.PositionType.BOTTOM, 1, 1)
-
-    self.scrollable_treelist = Gtk.ScrolledWindow()
-    self.scrollable_treelist.set_hexpand(True)
-    self.scrollable_treelist.set_vexpand(True)
-    self.scrollable_treelist.set_min_content_width(sum(text_widths))
-    self.scrollable_treelist.set_min_content_height(1.5 * text_height * \
-							min_visible_list_lines)
 
     self.grid.attach_next_to(self.scrollable_treelist,
 				self.oath_pwd_entry_row,
@@ -215,14 +303,24 @@ class authenticator(Gtk.Window):
 				self.filter_entry_row,
 				Gtk.PositionType.BOTTOM, 1, 1)
 
-    self.scrollable_treelist.add(self.treeview)
-
     # Focus on the filter entry by default
     self.filter_entry.grab_focus()
+
+    # Make any click inside the window outside of the above widgets update the
+    # auto-close timestamp too
+    self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+    self.connect("button-press-event", self.refresh_autoclose_tstamp)
+
+    # Refresh the auto-close timestamp for the first time
+    self.refresh_autoclose_tstamp()
 
     # Start the periodic timeout function and make it run every .1 second
     GLib.timeout_add(100, self.timeout_func)
 
+    # Make sure we stop the timeout function when the user closes the window
+    self.connect("destroy", self.request_timeout_func_stop)
+
+    # Show the window
     self.show_all()
 
 
@@ -237,9 +335,49 @@ class authenticator(Gtk.Window):
 
 
 
+  def set_statusbar(self, lvl, msg):
+    """Set a message for the status bar at a certain importance level.
+    The status bar displays the message with the highest importance.
+    Returns whether the message at that importance level was changed.
+    """
+
+    # Get the message currently displayed by the status bar
+    c = ([None] + [c for c in self.statusbar_messages if c is not None])[-1]
+
+    # Update the message at that importance level
+    msg_at_lvl_changed = self.statusbar_messages[lvl] != msg
+    self.statusbar_messages[lvl] = msg
+
+    # Get the new message that should be displayed by the status bar
+    n = ([None] + [c for c in self.statusbar_messages if c is not None])[-1]
+
+    # Clear the status bar if it already shows something and it should change
+    if c and (not n or n != c):
+      self.statusbar.pop(0)
+
+    # Set the new message in the status bar if it's not empty and it's
+    # different from what's already displayed
+    if n and n != c:
+      self.statusbar.push(0, n)
+
+    return msg_at_lvl_changed
+
+
+
+  def refresh_autoclose_tstamp(self, win = None, evt = None):
+    """Recalculate the timestamp at which the window should be automatically
+    closed
+    """
+
+    self.autoclose_tstamp = time() + auto_close_idle_window_timeout
+
+
+
   def on_treeview_selection(self, selection):
     """Called when a treeview node is seleced
     """
+
+    self.refresh_autoclose_tstamp()
 
     tree_model, i = selection.get_selected()
 
@@ -250,62 +388,50 @@ class authenticator(Gtk.Window):
       # Copy the selected code to the clipboard
       self.clipboard.set_text(code, -1)
 
-      self.statusbar.pop(0)
-      self.statusbar.push(0, "Copied code {} ({}{}) into the clipboard".
+      self.set_statusbar(0, "Copied code {} ({}{}) into the clipboard".
 				format(code, issuer + ":" if issuer else "",
 					account))
 
 
 
-  def on_entry_update(self, entry):
-    """Called when any of the text entry boxes is updated
+  def on_cfg_entry_update(self, entry):
+    """Called when any of the configuration entries are changed or activated
     """
 
-    save_cfgfile = False
+    self.refresh_autoclose_tstamp()
 
-    # Get the reader
-    s = self.reader_entry.get_text()
-    if s != self.reader:
-      save_cfgfile = True
-      self.reader = s
+    self.reader = self.reader_entry.get_text()
+    self.oath_pwd = self.oath_pwd_entry.get_text()
+    self.oath_pwd_remember = self.oath_pwd_entry_checkbtn.get_active()
 
-    # Get the OATH password
-    s = self.oath_pwd_entry.get_text()
-    if s != self.oath_pwd:
-      save_cfgfile = True
-      self.oath_pwd = s
+    # Save the configuration file and set it read/writeable by the the user only
+    try:
+      with open(self.cfgfile, "w") as f:
 
-    # Get the state of the "remember" check button
-    s = self.oath_pwd_entry_checkbtn.get_active()
-    if s != self.oath_pwd_remember:
-      save_cfgfile = True
-      self.oath_pwd_remember = s
+        print(self.reader, file = f)
+        print(self.oath_pwd if self.oath_pwd_remember else "", file = f)
+        print("Remember" if self.oath_pwd_remember else "Forget", file = f)
 
-    # Save the configuration file if needed and set it read/writeable by the
-    # the user only
-    error_saving = False
-    self.statusbar.pop(0)
+    except Exception as e:
+      self.set_statusbar(1, "Error saving configuration: {}".format(e))
+      return
 
-    if save_cfgfile:
-      try:
-        with open(self.cfgfile, "w") as f:
+    try:
+      os.chmod(self.cfgfile, 0o600)
 
-          print(self.reader, file = f)
-          print(self.oath_pwd if self.oath_pwd_remember else "", file = f)
-          print("Remember" if self.oath_pwd_remember else "Forget", file = f)
+    except Exception as e:
+      self.set_statusbar(1, "Error setting config file perms: {}".format(e))
+      return
 
-      except Exception as e:
-        error_saving = True
-        self.statusbar.push(0, "Error saving configuration: {}".format(e))
+    self.set_statusbar(1, None)
 
-      if not error_saving:
-        try:
-          os.chmod(self.cfgfile, 0o600)
 
-        except Exception as e:
-          error_saving = True
-          self.statusbar.push(0, "Error setting config file perms: {}".
-				format(e))
+
+  def on_filter_entry_update(self, entry):
+    """Called when the filter entry is changed or activated
+    """
+
+    self.refresh_autoclose_tstamp()
 
     # Get the filter text and refilter if needed
     s = self.filter_entry.get_text()
@@ -320,19 +446,28 @@ class authenticator(Gtk.Window):
     vkman utility and processing what it returns
     """
 
-    global vkman
-    global stop_timeout_func
+    # Has the authenticator been idle for too long?
+    secs_to_autoclose = int(self.autoclose_tstamp - time())
+    if secs_to_autoclose <= 0:
+      self.close()
+
+    # Are we about to auto-close the window?
+    elif secs_to_autoclose <= auto_close_idle_window_countdown:
+      self.set_statusbar(2, "Idle - closing in {} seconds...".
+				format(secs_to_autoclose))
+
+    else:
+      self.set_statusbar(2, None)
 
     # Is vkman not running?
     if self.vkman_proc is None:
 
       # If we've been asked to stop, do so
-      if stop_timeout_func:
-        stop_timeout_func = False
+      if self.stop_timeout_func:
         return False
 
       # Start vkman
-      cmd = [vkman, "-r", self.reader if self.reader else default_reader,
+      cmd = [self.vkman, "-r", self.reader if self.reader else default_reader,
 		"oath", "accounts", "code"]
       cmd += ["-p", self.oath_pwd] if self.oath_pwd else []
 
@@ -340,8 +475,8 @@ class authenticator(Gtk.Window):
         self.vkman_proc = Popen(cmd, stdout = PIPE, stderr = PIPE)
 
       except Exception as e:
-        self.statusbar.pop(0)
-        self.statusbar.push(0, "Error running {}: {}".format(vkman, e))
+        if self.set_statusbar(0, "Error running {}: {}".format(self.vkman, e)):
+          self.refresh_autoclose_tstamp()
 
     # vkman is running:
     else:
@@ -364,20 +499,32 @@ class authenticator(Gtk.Window):
       # Did the command return an error code?
       if errcode:
 
-        # If we got a connection-related error, something went wrong trying to
-        # read the token, but it's nothing to write into the status bar about
-        if not ("Failed to connect" in stderr_lines[0] or \
-		"CardConnectionException" in stderr_lines[-1]):
-          self.statusbar.pop(0)
-          self.statusbar.push(0, "Error running {}{}".format(vkman,
+        # If we got a connection-related error, either there's no tag in the
+        # field or it doesn't couple well, so don't consider this an error.
+        # Only report any other errors to the user
+        if "Failed to connect" in stderr_lines[0] or \
+		"CardConnectionException" in stderr_lines[-1]:
+          if self.last_scan_was_error:
+            self.set_statusbar(0, None)
+          self.last_scan_was_error = False
+
+        else:
+          if self.set_statusbar(0, "Error running {}{}".format(self.vkman,
 						"" if not stderr_lines else \
-						": " + stderr_lines[0]))
+						": " + stderr_lines[0])):
+            self.refresh_autoclose_tstamp()
+          self.last_scan_was_error = True
+
         return True
 
       # Did the command fail to return anything on stdout?
       if not stdout_lines:
-        self.statusbar.pop(0)
-        self.statusbar.push(0, "Error: {} returned nothing".format(vkman))
+
+        if self.set_statusbar(0, "Error: {} returned nothing".
+				format(self.vkman)):
+          self.refresh_autoclose_tstamp()
+          self.last_scan_was_error = True
+
         return True
 
       # Process the lines returned by vkman
@@ -387,9 +534,12 @@ class authenticator(Gtk.Window):
         # Did the command return a malformed line?
         m = re.findall("^((.*):)?([^:]*\S)\s+([0-9]{6,10})\s*$", l)
         if not m:
-          self.statusbar.pop(0)
-          self.statusbar.push(0, "Error: {} returned a malformed line: {}".
-					format(vkman, l))
+
+          if self.set_statusbar(0, "Error: {} returned a malformed line: {}".
+					format(self.vkman, l)):
+            self.refresh_autoclose_tstamp()
+          self.last_scan_was_error = True
+
           return True
 
         iacs.append(m[0][1:])
@@ -399,89 +549,25 @@ class authenticator(Gtk.Window):
       for iac in iacs:
         self.liststore.append(iac)
 
-      self.statusbar.pop(0)
-      self.statusbar.push(0, "Successfully read {} codes!".format(len(iacs)))
+      if self.set_statusbar(0, "Successfully read {} codes".format(len(iacs))):
+        self.refresh_autoclose_tstamp()
+
+    self.last_scan_was_error = False
 
     return True
 
 
 
-### App indicator callbacks
-def menu():
-  """Create and populate the app indicator's menu
-  """
+  def request_timeout_func_stop(self, _):
+    """Ask the timeout function to quit whenever possible
+    """
 
-  menu = Gtk.Menu()
-
-  cmd_getcodes = Gtk.MenuItem(label = 'Get codes')
-  cmd_getcodes.connect('activate', getcodes)
-  menu.append(cmd_getcodes)
-
-  exit = Gtk.MenuItem(label = 'Exit')
-  exit.connect('activate', quit)
-  menu.append(exit)
-
-  menu.show_all()
-
-  return menu
-
-
-
-def getcodes(_):
-  """Open the authenticator window
-  """
-
-  global authenticator_running
-  global stop_timeout_func
-
-  if authenticator_running:
-    return
-
-  authenticator_running = True
-
-  # Try to read the configuration file, fail silently
-  reader = None
-  oath_pwd = None
-  oath_pwd_remember = False
-
-  cfgfile = os.path.expanduser(config_file)
-  try:
-    with open(cfgfile, "r") as f:
-
-      params = f.read().splitlines()
-
-      if len(params) == 3 and params[2] in ("Remember", "Forget"):
-        reader, oath_pwd, oath_pwd_remember = params
-        oath_pwd_remember = oath_pwd_remember == "Remember"
-
-  except:
-    pass
-
-  # Start the authenticator
-  win = authenticator(cfgfile, reader, oath_pwd, oath_pwd_remember)
-  win.connect("destroy", Gtk.main_quit)
-  win.show_all()
-  Gtk.main()
-
-  # Ask the periodic timeout function to stop whenever possible
-  stop_timeout_func = True
-
-  authenticator_running = False
-
-
-
-def quit(_):
-  """Quit the app indicator
-  """
-
-  Gtk.main_quit()
+    self.stop_timeout_func = True
 
 
 
 ### Main routine
 def main():
-
-  global vkman
 
   # Parse the command line arguments
   argparser = argparse.ArgumentParser()
@@ -495,18 +581,8 @@ def main():
 
   args = argparser.parse_args()
 
-  vkman = args.vkman
-
-  # Create the app indicator
-  indicator = AppIndicator3.Indicator.new(tray_item_id, tray_item_icon,
-						AppIndicator3.IndicatorCategory.
-						APPLICATION_STATUS)
-  indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
-  indicator.set_title(title)
-  indicator.set_menu(menu())
-
   # Run the app indicator
-  Gtk.main()
+  tray_item(args.vkman)
 
 
 
