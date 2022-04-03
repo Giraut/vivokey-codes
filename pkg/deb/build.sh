@@ -14,17 +14,19 @@ rm -rf ${PKGBUILD}
 cp -a ${PKGSRC} ${PKGBUILD}
 
 # Create empty directory structure
-mkdir -p ${PKGBUILD}/etc/xdg/autostart
 mkdir -p ${PKGBUILD}/usr/bin
 mkdir -p ${PKGBUILD}/usr/share/icons
+mkdir -p ${PKGBUILD}/etc/xdg/autostart
+mkdir -p ${PKGBUILD}/usr/share/applications
 
 # Populate the package build directory with the source files
 install -m 644 ${SRC}/README ${PKGBUILD}/usr/share/doc/vivokey-codes
 install -m 644 ${SRC}/LICENSE ${PKGBUILD}/usr/share/doc/vivokey-codes
 
-install -m 755 ${SRC}/vivokey_codes.desktop ${PKGBUILD}/etc/xdg/autostart
 install -m 755 ${SRC}/vivokey_codes.py ${PKGBUILD}/usr/bin/vivokey_codes
 install -m 644 ${SRC}/vivokey_codes.png ${PKGBUILD}/usr/share/icons
+install -m 644 ${SRC}/vivokey_codes.desktop ${PKGBUILD}/etc/xdg/autostart
+install -m 644 ${SRC}/vivokey_codes.desktop ${PKGBUILD}/usr/share/applications
 
 # Set the version in the control file
 sed -i "s/^Version:.*\$/Version: ${VERSION}/" ${PKGBUILD}/DEBIAN/control

@@ -1,5 +1,6 @@
 [Desktop Entry]
 Type=Application
+Categories=GNOME;GTK;Utility;Accessories;Security;NFC;
 Icon=vivokey_codes
 Exec=/usr/bin/vivokey_codes
 X-GNOME-Autostart-enabled=false
