@@ -72,7 +72,8 @@ class tray_item():
     self.vkman = vkman
     self.cfgfile = os.path.expanduser(config_file)
 
-    self.authenticator_running = False
+    # Start the authenticator deactivated
+    self.auth = authenticator(self.vkman, self.cfgfile)
 
     # Create the app indicator
     self.ind = AppIndicator3.Indicator.new(tray_item_id, icon,
@@ -85,8 +86,11 @@ class tray_item():
     self.menu = Gtk.Menu()
 
     self.cmd_getcodes = Gtk.MenuItem(label = 'Get codes')
-    self.cmd_getcodes.connect('activate', self.open_authenticator_window)
+    self.cmd_getcodes.connect('activate', self.auth.activate)
     self.menu.append(self.cmd_getcodes)
+
+    self.separator = Gtk.SeparatorMenuItem()
+    self.menu.append(self.separator)
 
     self.exit = Gtk.MenuItem(label = 'Exit')
     self.exit.connect('activate', Gtk.main_quit)
@@ -101,42 +105,20 @@ class tray_item():
 
 
 
-  def open_authenticator_window(self, _):
-    """Open the authenticator window
-    """
-
-    # Only run one instance
-    if self.authenticator_running:
-      return
-
-    self.authenticator_running = True
-
-    # Start the authenticator
-    authenticator(self.vkman, self.cfgfile, self.authenticator_stop)
-
-
-
-  def authenticator_stop(self):
-    """Callback for the authenticator to notify us that it's stopped
-    """
-
-    self.authenticator_running = False
-
-
-
 class authenticator(Gtk.Window):
   """Main authenticator application
   """
 
-  def __init__(self, vkman, cfgfile, stop_callback):
+  def __init__(self, vkman, cfgfile):
     """__init__ method
     """
 
     super().__init__(title = title)
 
+    self.activated = False
+
     self.vkman = vkman
     self.cfgfile = cfgfile
-    self.stop_callback = stop_callback
 
     # Get the clipboard
     self.clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
@@ -224,9 +206,11 @@ class authenticator(Gtk.Window):
     self.reader_entry.connect("button_press_event", self.on_clicked)
 
     self.reader_entry_row = Gtk.HBox()
+
     self.reader_entry_row.pack_start(self.reader_entry_label,
 						expand = False, fill = False,
 						padding = 1)
+
     self.reader_entry_row.pack_end(self.reader_entry,
 						expand = True, fill = True,
 						padding = 1)
@@ -249,12 +233,15 @@ class authenticator(Gtk.Window):
     self.oath_pwd_entry_checkbtn.connect("toggled", self.on_cfg_entry_update)
 
     self.oath_pwd_entry_row = Gtk.HBox()
+
     self.oath_pwd_entry_row.pack_start(self.oath_pwd_entry_label,
 						expand = False, fill = False,
 						padding = 1)
+
     self.oath_pwd_entry_row.pack_start(self.oath_pwd_entry,
 						expand = True, fill = True,
 						padding = 1)
+
     self.oath_pwd_entry_row.pack_end(self.oath_pwd_entry_checkbtn,
 						expand = False, fill = False,
 						padding = 1)
@@ -278,6 +265,7 @@ class authenticator(Gtk.Window):
     self.filter_entry_label = Gtk.Label(label = "Filter:")
 
     self.filter_entry_row = Gtk.HBox()
+
     self.filter_entry_row.pack_start(self.filter_entry_label,
 						expand = False, fill = True,
 						padding = 1)
@@ -285,11 +273,23 @@ class authenticator(Gtk.Window):
 						expand = True, fill = True,
 						padding = 1)
 
-    # Create the status bar
+    # Create the status bar, with a spinner to suggest we're doing some work
     self.statusbar = Gtk.Statusbar()
 
+    self.spinner = Gtk.Spinner()
+
+    self.statusbar_row = Gtk.HBox()
+
+    self.statusbar_row.pack_start(self.statusbar,
+					expand = True, fill = True,
+					padding = 1)
+
+    self.statusbar_row.pack_end(self.spinner,
+					expand = False, fill = True,
+					padding = 1)
+
     self.statusbar_with_labeled_frame = Gtk.Frame(label = "Status")
-    self.statusbar_with_labeled_frame.add(self.statusbar)
+    self.statusbar_with_labeled_frame.add(self.statusbar_row)
 
     # Put everything together in a grid
     self.grid = Gtk.Grid()
@@ -323,19 +323,46 @@ class authenticator(Gtk.Window):
     # Refresh the auto-close timestamp for the first time
     self.refresh_autoclose_tstamp()
 
-    # Start the periodic timeout function and make it run every .1 second
-    GLib.timeout_add(100, self.timeout_func)
+    # Catch the user closing the window so we can deactivate instead of quitting
+    self.connect("delete-event", self.deactivate)
 
-    # Make sure we stop the timeout function when the user closes the window
-    self.connect("destroy", self.request_timeout_func_stop)
 
-    # Show the window
-    self.show_all()
+
+
+  def activate(self, _):
+    """Activate the authenticator - i.e. unhide the window and start the
+    periodic timeout function that does the scanning
+    """
+
+    # If we're already activated, we have nothing to do
+    if self.activated:
+      return
+
+    self.activated = True
+
+    self.refresh_autoclose_tstamp()
+
+    # Clear the liststore and the status bar, so the user is presented with a
+    # fresh screen
+    self.liststore.clear()
+    for i in range(len(self.statusbar_messages)):
+      self.set_statusbar(i, None)
+
+    # Start the periodic timeout function and make it run every .2 second
+    self.stop_timeout_func = False
+    GLib.timeout_add(200, self.timeout_func)
 
     # Ask the window manager to keep it above all the other windows until we
     # regain focus
     self.set_keep_above(True)
     self.window_kept_above = True
+
+    # Start the spinner
+    self.spinner.start()
+
+    # Show the window
+    self.show_all()
+    self.show()
 
 
 
@@ -478,6 +505,24 @@ class authenticator(Gtk.Window):
 
 
 
+  def deactivate(self, w = None, e = None):
+    """Ask the timeout function to stop whenever possible, then hide the window
+    """
+
+    # Ask the timeout function to stop
+    self.stop_timeout_func = True
+
+    # Hide the window
+    self.hide()
+
+    # Stop the spinner
+    self.spinner.start()
+
+    # Prevent the delete event from propagating
+    return True
+
+
+
   def timeout_func(self):
     """Timeout function that gets called periodically, handles running the
     vkman utility and processing what it returns
@@ -486,7 +531,7 @@ class authenticator(Gtk.Window):
     # Has the authenticator been idle for too long?
     secs_to_autoclose = int(self.autoclose_tstamp - time())
     if secs_to_autoclose <= 0:
-      self.close()
+      self.deactivate()
 
     # Are we about to auto-close the window?
     elif secs_to_autoclose <= auto_close_idle_window_countdown:
@@ -501,10 +546,7 @@ class authenticator(Gtk.Window):
 
       # If we've been asked to stop, do so
       if self.stop_timeout_func:
-
-        # Notify the indicator app that we've stopped
-        self.stop_callback()
-
+        self.activated = False
         return False
 
       # Start vkman
@@ -596,14 +638,6 @@ class authenticator(Gtk.Window):
       self.last_scan_was_error = False
 
     return True
-
-
-
-  def request_timeout_func_stop(self, _):
-    """Ask the timeout function to quit whenever possible
-    """
-
-    self.stop_timeout_func = True
 
 
 
