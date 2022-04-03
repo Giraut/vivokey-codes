@@ -647,7 +647,7 @@ def main():
 
   argparser.add_argument(
 	"-v", "--vkman",
-	help = "Path to the vkman utility. Default: <user>@{}".
+	help = "Path to the vkman utility. Default: {}".
 		format(default_vkman),
 	type = str,
 	default = default_vkman)
