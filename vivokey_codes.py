@@ -100,7 +100,7 @@ class tray_item():
 
     self.ind.set_menu(self.menu)
 
-    # Run the app indicator
+    # Run the app
     Gtk.main()
 
 
@@ -325,7 +325,6 @@ class authenticator(Gtk.Window):
 
     # Catch the user closing the window so we can deactivate instead of quitting
     self.connect("delete-event", self.deactivate)
-
 
 
 
