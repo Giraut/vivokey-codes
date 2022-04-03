@@ -47,7 +47,8 @@ Usage
    configuration allows it.
 
    This program starts minimized in the system tray. Click on the icon then
-   select "Get codes" to start the authenticator's panel.
+   select "Get codes", or middle-click on the icon, to start the authenticator's
+   panel.
 
    As soon as the panel comes up, it starts polling the PC/SC reader whose name
    is specified in the Reader field for a Vivokey token to read. When the panel

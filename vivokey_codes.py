@@ -4,7 +4,7 @@ GTK authenticator to read TOTP codes from a Vivokey OTP applet, display them
 and copy them into the clipboard.
 
 This program starts minimized in the system tray. Click on the icon then select
-"Get codes" to start the authenticator's panel.
+"Get codes", or middle-click on the icon, to start the authenticator's panel.
 
 As soon as the panel comes up, it starts polling the PC/SC reader whose name is
 specified in the Reader field for a Vivokey token to read. When the panel is
@@ -72,7 +72,7 @@ class tray_item():
     self.vkman = vkman
     self.cfgfile = os.path.expanduser(config_file)
 
-    # Start the authenticator deactivated
+    # Start the authenticator in deactivated mode
     self.auth = authenticator(self.vkman, self.cfgfile)
 
     # Create the app indicator
@@ -85,9 +85,9 @@ class tray_item():
     # Create and set the app indicator's menu
     self.menu = Gtk.Menu()
 
-    self.cmd_getcodes = Gtk.MenuItem(label = 'Get codes')
-    self.cmd_getcodes.connect('activate', self.auth.activate)
-    self.menu.append(self.cmd_getcodes)
+    self.activate_authenticator = Gtk.MenuItem(label = 'Get codes')
+    self.activate_authenticator.connect('activate', self.auth.activate)
+    self.menu.append(self.activate_authenticator)
 
     self.separator = Gtk.SeparatorMenuItem()
     self.menu.append(self.separator)
@@ -96,9 +96,13 @@ class tray_item():
     self.exit.connect('activate', Gtk.main_quit)
     self.menu.append(self.exit)
 
-    self.menu.show_all()
-
     self.ind.set_menu(self.menu)
+
+    # Set the app indicator's secondary target (i.e. middle-click)
+    self.ind.set_secondary_activate_target(self.activate_authenticator)
+
+    # Show the app indicator's menu
+    self.menu.show_all()
 
     # Run the app
     Gtk.main()
