@@ -1,6 +1,6 @@
                                  Vivokey Codes
                                  -------------
-                                    v0.0.5
+                                    v0.0.6
 
 
 GTK authenticator to read TOTP codes from a Vivokey OTP applet, display them
@@ -26,9 +26,12 @@ Installation
 
      sudo apt install vivokey-manager
 
-2/ Copy vivokey_codes.py to /usr/bin/vivokey_codes
-   Copy vivokey_codes.png into /usr/share/icons/
-   Copy vivokey_codes.desktop into /etc/xdg/autostart/
+2/ Install the files as root:
+
+     install -m 755 vivokey_codes.py /usr/bin/vivokey_codes
+     install -m 644 vivokey_codes.png /usr/share/icons/
+     install -m 644 vivokey_codes.desktop /etc/xdg/autostart/
+     install -m 644 vivokey_codes.desktop /usr/share/applications/
 
    Optionally, you can also install everything from a pre-build Debian package:
 
