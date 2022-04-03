@@ -361,7 +361,6 @@ class authenticator(Gtk.Window):
 
     # Show the window
     self.show_all()
-    self.show()
 
 
 
