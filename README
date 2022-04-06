@@ -59,7 +59,8 @@ Usage
 
    If a token is read successfully, the accounts and associated TOTP codes it
    returned are displayed in the list. Select one entry to copy the code into
-   the clipboard.
+   the clipboard. The code may be pasted into any application with
+   right-click-paste, Ctrl-V or with the middle-click.
 
 
 

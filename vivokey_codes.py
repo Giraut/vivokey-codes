@@ -15,7 +15,8 @@ set the password in the panel.
 
 If a token is read successfully, the accounts and associated TOTP codes it
 returned are displayed in the list. Select one entry to copy the code into the
-clipboard.
+clipboard. The code may be pasted into any application with right-click-paste,
+Ctrl-V or with the middle-click.
 
 This program uses the Vivokey Manager utility. See:
 
@@ -124,8 +125,10 @@ class authenticator(Gtk.Window):
     self.vkman = vkman
     self.cfgfile = cfgfile
 
-    # Get the clipboard
-    self.clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+    # Get the clipboards: selection clipboard for regular copy/paste and primary
+    # clipboard for GNOME-style middle-click paste
+    self.selection_clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+    self.selprimary_clipboard = Gtk.Clipboard.get(Gdk.SELECTION_PRIMARY)
 
     self.vkman_proc = None
 
@@ -449,8 +452,10 @@ class authenticator(Gtk.Window):
     if i is not None:
       issuer, account, code = tree_model[i]
 
-      # Copy the selected code to the clipboard
-      self.clipboard.set_text(code, -1)
+      # Copy the selected code both to the selection clipboard and the primary
+      # clipboard
+      self.selection_clipboard.set_text(code, -1)
+      self.selprimary_clipboard.set_text(code, -1)
 
       self.set_statusbar(0, "Copied code {} ({}{}) into the clipboard".
 				format(code, issuer + ":" if issuer else "",
