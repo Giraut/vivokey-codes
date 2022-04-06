@@ -28,6 +28,7 @@ default_vkman = "/usr/bin/vkman"
 default_reader = "0"
 config_file = "~/.vivokey_codes.cfg"
 
+codes_deprecation_timeout = 30 #s
 auto_close_idle_window_timeout = 120 #s
 auto_close_idle_window_countdown = 30 #s
 
@@ -149,6 +150,9 @@ class authenticator(Gtk.Window):
     except:
       pass
 
+    self.current_list_data = []
+    self.codes_deprecation_tstamp = None
+
     self.current_filter = ""
     self.statusbar_messages = [None] * 3
 
@@ -184,8 +188,8 @@ class authenticator(Gtk.Window):
     self.treeview.connect("button_press_event", self.on_clicked)
 
     # Get and set the text renderer
-    renderer = Gtk.CellRendererText()
-    renderer.set_fixed_height_from_font(1)
+    self.renderer = Gtk.CellRendererText()
+    self.renderer.set_fixed_height_from_font(1)
 
     # Calculate the size in pixels of a typical issuer, account and code
     text_widths = [0, 0, 0]
@@ -196,7 +200,11 @@ class authenticator(Gtk.Window):
       text_widths[i], text_height = pango.get_pixel_size()
 
     for i, column_title in enumerate(["Issuer", "Account", "Code"]):
-      column = Gtk.TreeViewColumn(column_title, renderer, text = i)
+      if i < 2:
+        column = Gtk.TreeViewColumn(column_title, self.renderer, text = i)
+      else:
+        column = Gtk.TreeViewColumn(column_title, self.renderer, markup = i)
+
       column.set_min_width(text_widths[i])
       column.set_expand(True)
       self.treeview.append_column(column)
@@ -410,6 +418,20 @@ class authenticator(Gtk.Window):
 
 
 
+  def set_list(self, list_data, codes_deprecated = False):
+    """Set the data in the liststore. If codes_deprecated if asserted, the
+    codes are shown in light, bold otherwise.
+    """
+
+    self.liststore.clear()
+
+    for i, a, c in list_data:
+      self.liststore.append([i, a, '<span weight="{}">{}</span>'.
+				format("light" if codes_deprecated else "bold",
+					c)])
+
+
+
   def refresh_autoclose_tstamp(self):
     """Recalculate the timestamp at which the window should be automatically
     closed
@@ -535,8 +557,10 @@ class authenticator(Gtk.Window):
     vkman utility and processing what it returns
     """
 
+    now = time()
+
     # Has the authenticator been idle for too long?
-    secs_to_autoclose = int(self.autoclose_tstamp - time())
+    secs_to_autoclose = int(self.autoclose_tstamp - now)
     if secs_to_autoclose <= 0:
       self.deactivate()
 
@@ -547,6 +571,12 @@ class authenticator(Gtk.Window):
 
     else:
       self.set_statusbar(2, None)
+
+    # Are the codes currently displayed in the list deprecated?
+    if self.codes_deprecation_tstamp is not None and \
+	now >= self.codes_deprecation_tstamp:
+      self.set_list(self.current_list_data, codes_deprecated = True)
+      self.codes_deprecation_tstamp = None
 
     # Is vkman not running?
     if self.vkman_proc is None:
@@ -635,9 +665,9 @@ class authenticator(Gtk.Window):
         iacs.append(m[0][1:])
 
       # Replace the data in the liststore with the new data returned by vkman
-      self.liststore.clear()
-      for iac in iacs:
-        self.liststore.append(iac)
+      self.current_list_data = iacs
+      self.set_list(self.current_list_data, codes_deprecated = False)
+      self.codes_deprecation_tstamp = time() + codes_deprecation_timeout
 
       if self.set_statusbar(0, "Successfully read {} codes".format(len(iacs))):
         self.refresh_autoclose_tstamp()
