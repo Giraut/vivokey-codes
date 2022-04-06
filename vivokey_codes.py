@@ -472,7 +472,11 @@ class authenticator(Gtk.Window):
 
     # Do we have a selection?
     if i is not None:
+
       issuer, account, code = tree_model[i]
+
+      # Strip the markup from the code
+      code = re.sub("<.*?>", "", code)
 
       # Copy the selected code both to the selection clipboard and the primary
       # clipboard
