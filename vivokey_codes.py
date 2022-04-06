@@ -358,6 +358,9 @@ class authenticator(Gtk.Window):
 
     # Clear the liststore and the status bar, so the user is presented with a
     # fresh screen
+    self.current_list_data = []
+    self.codes_deprecation_tstamp = None
+
     self.liststore.clear()
     for i in range(len(self.statusbar_messages)):
       self.set_statusbar(i, None)
