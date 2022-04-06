@@ -671,6 +671,19 @@ class authenticator(Gtk.Window):
 
         iacs.append(m[0][1:])
 
+      # Has the list changed?
+      list_data_changed = True
+      if len(iacs) == len(self.current_list_data):
+        for i, iac in enumerate(iacs):
+          if iac != self.current_list_data[i]:
+            break
+        else:
+          list_data_changed = False
+
+      # If the list hasn't changed, act as if we hadn't read anything
+      if not list_data_changed:
+        return True
+
       # Replace the data in the liststore with the new data returned by vkman
       self.current_list_data = iacs
       self.set_list(self.current_list_data, codes_deprecated = False)
