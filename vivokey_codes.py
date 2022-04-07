@@ -684,13 +684,14 @@ class authenticator(Gtk.Window):
       if not list_data_changed:
         return True
 
+      self.refresh_autoclose_tstamp()
+
       # Replace the data in the liststore with the new data returned by vkman
       self.current_list_data = iacs
       self.set_list(self.current_list_data, codes_deprecated = False)
       self.codes_deprecation_tstamp = time() + codes_deprecation_timeout
 
-      if self.set_statusbar(0, "Successfully read {} codes".format(len(iacs))):
-        self.refresh_autoclose_tstamp()
+      self.set_statusbar(0, "Successfully read {} codes".format(len(iacs)))
 
       self.last_scan_was_error = False
 
