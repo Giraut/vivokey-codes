@@ -199,9 +199,11 @@ class authenticator(Gtk.Window):
       pango = self.treeview.create_pango_layout(s)
       text_widths[i], text_height = pango.get_pixel_size()
 
-      column = Gtk.TreeViewColumn("Issuer", self.renderer, text = i)
-      column = Gtk.TreeViewColumn("Account", self.renderer, text = i)
-      column = Gtk.TreeViewColumn("Code", self.renderer, markup = i)
+    for i, column_title in enumerate(["Issuer", "Account", "Code"]):
+      if i < 2:
+        column = Gtk.TreeViewColumn(column_title, self.renderer, text = i)
+      else:
+        column = Gtk.TreeViewColumn(column_title, self.renderer, markup = i)
 
       column.set_min_width(text_widths[i])
       column.set_expand(True)
