@@ -184,8 +184,8 @@ class authenticator(Gtk.Window):
     # columns
     self.treeview = Gtk.TreeView(model = self.filter)
     self.treeview_select = self.treeview.get_selection()
-    self.treeview_select.connect("changed", self.on_treeview_selection)
     self.treeview.connect("button_press_event", self.on_clicked)
+    self.treeview_changed_handler_id = None
 
     # Get and set the text renderer
     self.renderer = Gtk.CellRendererText()
@@ -199,11 +199,9 @@ class authenticator(Gtk.Window):
       pango = self.treeview.create_pango_layout(s)
       text_widths[i], text_height = pango.get_pixel_size()
 
-    for i, column_title in enumerate(["Issuer", "Account", "Code"]):
-      if i < 2:
-        column = Gtk.TreeViewColumn(column_title, self.renderer, text = i)
-      else:
-        column = Gtk.TreeViewColumn(column_title, self.renderer, markup = i)
+      column = Gtk.TreeViewColumn("Issuer", self.renderer, text = i)
+      column = Gtk.TreeViewColumn("Account", self.renderer, text = i)
+      column = Gtk.TreeViewColumn("Code", self.renderer, markup = i)
 
       column.set_min_width(text_widths[i])
       column.set_expand(True)
@@ -426,12 +424,23 @@ class authenticator(Gtk.Window):
     codes are shown in light, bold otherwise.
     """
 
+
+    # Disconnect the treeview from the "changed" signal while we change the list
+    if self.treeview_changed_handler_id is not None:
+      self.treeview_select.disconnect(self.treeview_changed_handler_id)
+
+    # Clear the list
     self.liststore.clear()
 
+    # Fill the list with the new data
     for i, a, c in list_data:
       self.liststore.append([i, a, '<span weight="{}">{}</span>'.
 				format("light" if codes_deprecated else "bold",
 					c)])
+
+    # Reconnect the treeview to the "changed" signal
+    self.treeview_changed_handler_id = self.treeview_select.connect("changed",
+						self.on_treeview_selection)
 
 
 
@@ -671,29 +680,22 @@ class authenticator(Gtk.Window):
 
         iacs.append(m[0][1:])
 
-      # Has the list changed?
-      list_data_changed = True
-      if len(iacs) == len(self.current_list_data):
-        for i, iac in enumerate(iacs):
-          if iac != self.current_list_data[i]:
-            break
-        else:
-          list_data_changed = False
+      self.set_statusbar(0, "Successfully read {} codes".format(len(iacs)))
+      self.last_scan_was_error = False
 
-      # If the list hasn't changed, act as if we hadn't read anything
-      if not list_data_changed:
+      # If the list hasn't changed, don't update the data in the liststore
+      if len(iacs) == len(self.current_list_data) and all([e[0] == e[1] \
+				for e in zip(iacs, self.current_list_data)]):
         return True
 
-      self.refresh_autoclose_tstamp()
+      # Update the code deprecation timeout
+      self.codes_deprecation_tstamp = time() + codes_deprecation_timeout
 
       # Replace the data in the liststore with the new data returned by vkman
       self.current_list_data = iacs
       self.set_list(self.current_list_data, codes_deprecated = False)
-      self.codes_deprecation_tstamp = time() + codes_deprecation_timeout
 
-      self.set_statusbar(0, "Successfully read {} codes".format(len(iacs)))
-
-      self.last_scan_was_error = False
+      self.refresh_autoclose_tstamp()
 
     return True
 
