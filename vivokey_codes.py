@@ -424,7 +424,6 @@ class authenticator(Gtk.Window):
     codes are shown in light, bold otherwise.
     """
 
-
     # Disconnect the treeview from the "changed" signal while we change the list
     if self.treeview_changed_handler_id is not None:
       self.treeview_select.disconnect(self.treeview_changed_handler_id)
