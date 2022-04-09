@@ -15,18 +15,7 @@ https://github.com/Giraut/vivokey-manager
 Installation
 ------------
 
-1/ Install the Vivokey Manager command line utility. See:
-
-   https://github.com/Giraut/vivokey-manager
-
-   Optionally, you can install Vivokey Manager from a pre-build Debian package:
-
-     - See https://github.com/Giraut/ppa to add the PPA repository to your
-       APT sources
-
-     sudo apt install vivokey-manager
-
-2/ Install the files as root:
+   Install the files as root:
 
      install -m 755 vivokey_codes.py /usr/bin/vivokey_codes
      install -m 644 vivokey_codes.png /usr/share/icons/
@@ -64,6 +53,9 @@ Usage
 
    If background reading is enabled, the authenticator's panel automatically
    appears upon successfully reading new codes.
+
+   If close on select is enabled, the authenticator's panel automatically closes
+   when a code is selected.
 
 
 

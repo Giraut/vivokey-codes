@@ -20,6 +20,9 @@ Ctrl-V or with the middle-click.
 
 If background reading is enabled, the authenticator's panel automatically
 appears upon successfully reading new codes.
+
+If close on select is enabled, the authenticator's panel automatically closes
+when a code is selected.
 """
 
 ### Parameters
@@ -163,6 +166,7 @@ class authenticator(Gtk.Window):
     # Try to read the configuration file, fail silently
     self.reader = None
     self.bg_read_enabled = False
+    self.close_on_select = False
     self.oath_pwd = None
     self.oath_pwd_remember = False
 
@@ -174,11 +178,13 @@ class authenticator(Gtk.Window):
     except Exception as e:
       params = []
 
-    if len(params) == 4 and params[1] in ("Enabled", "Disabled") and \
-				params[3] in ("Remember", "Forget"):
-      self.reader, self.bg_read_enabled, self.oath_pwd, \
-						self.oath_pwd_remember = params
+    if len(params) == 5 and params[1] in ("Enabled", "Disabled") and \
+				params[2] in ("Close", "Keep") and \
+				params[4] in ("Remember", "Forget"):
+      self.reader, self.bg_read_enabled, self.close_on_select, \
+				self.oath_pwd, self.oath_pwd_remember = params
       self.bg_read_enabled = self.bg_read_enabled == "Enabled"
+      self.close_on_select = self.close_on_select == "Close"
       self.oath_pwd_remember = self.oath_pwd_remember == "Remember"
 
     # Set the readers regex and OATH password for the first time
@@ -244,8 +250,8 @@ class authenticator(Gtk.Window):
       column.set_expand(True)
       self.treeview.append_column(column)
 
-    # Create the text entry for the reader, with a label and a "enable
-    # background reading" check button
+    # Create the text entry for the reader, with a label, a "enable
+    # background reading" check button and a "close on select" check button
     self.reader_entry_label = Gtk.Label(label = "PC/SC Reader:")
 
     self.reader_entry = Gtk.Entry()
@@ -256,10 +262,14 @@ class authenticator(Gtk.Window):
     self.reader_entry.connect("changed", self.on_cfg_entry_update)
     self.reader_entry.connect("button_press_event", self.on_clicked)
 
-    self.reader_entry_checkbtn = Gtk.CheckButton(label = "enable background "
+    self.enable_bg_read_checkbtn = Gtk.CheckButton(label = "enable background "
 								"reading")
-    self.reader_entry_checkbtn.set_active(self.bg_read_enabled)
-    self.reader_entry_checkbtn.connect("toggled", self.on_cfg_entry_update)
+    self.enable_bg_read_checkbtn.set_active(self.bg_read_enabled)
+    self.enable_bg_read_checkbtn.connect("toggled", self.on_cfg_entry_update)
+
+    self.close_on_select_checkbtn = Gtk.CheckButton(label = "close on select")
+    self.close_on_select_checkbtn.set_active(self.close_on_select)
+    self.close_on_select_checkbtn.connect("toggled", self.on_cfg_entry_update)
 
     self.reader_entry_row = Gtk.HBox()
 
@@ -271,7 +281,11 @@ class authenticator(Gtk.Window):
 						expand = True, fill = True,
 						padding = 1)
 
-    self.reader_entry_row.pack_end(self.reader_entry_checkbtn,
+    self.reader_entry_row.pack_start(self.enable_bg_read_checkbtn,
+						expand = False, fill = False,
+						padding = 1)
+
+    self.reader_entry_row.pack_end(self.close_on_select_checkbtn,
 						expand = False, fill = False,
 						padding = 1)
 
@@ -384,6 +398,7 @@ class authenticator(Gtk.Window):
     # make it run every .2 seconds before activating the authenticator
     if self.bg_read_enabled:
 
+      self.stop_timeout_func = False
       GLib.timeout_add(200, self.timeout_func)
 
       # Trigger the first codes read
@@ -419,6 +434,7 @@ class authenticator(Gtk.Window):
     # if it isn't already running
     if not self.bg_read_enabled:
 
+      self.stop_timeout_func = False
       GLib.timeout_add(200, self.timeout_func)
 
       # Trigger the first codes read
@@ -571,6 +587,10 @@ class authenticator(Gtk.Window):
 				format(code, issuer + ":" if issuer else "",
 					account))
 
+      # If close on select is enabled, deactivate the authenticator
+      if self.close_on_select:
+        self.deactivate()
+
 
 
   def on_cfg_entry_update(self, entry):
@@ -581,7 +601,8 @@ class authenticator(Gtk.Window):
     self.refresh_autoclose_tstamp()
 
     self.reader = self.reader_entry.get_text()
-    self.bg_read_enabled = self.reader_entry_checkbtn.get_active()
+    self.bg_read_enabled = self.enable_bg_read_checkbtn.get_active()
+    self.close_on_select = self.close_on_select_checkbtn.get_active()
     self.oath_pwd = self.oath_pwd_entry.get_text()
     self.oath_pwd_remember = self.oath_pwd_entry_checkbtn.get_active()
 
@@ -596,6 +617,7 @@ class authenticator(Gtk.Window):
 
         print(self.reader, file = f)
         print("Enabled" if self.bg_read_enabled else "Disabled", file = f)
+        print("Close" if self.close_on_select else "Keep", file = f)
         print(self.oath_pwd if self.oath_pwd_remember else "", file = f)
         print("Remember" if self.oath_pwd_remember else "Forget", file = f)
 
@@ -636,7 +658,6 @@ class authenticator(Gtk.Window):
 
     # If we're asked to stop, do so
     if self.stop_timeout_func:
-      self.stop_timeout_func = False
       return False
 
     now = time()
@@ -695,12 +716,12 @@ class authenticator(Gtk.Window):
 
       return True
 
-    self.set_statusbar(0, "Successfully read {} codes".format(len(iacs)))
-    self.last_errmsg_clear_tstamp = None
-
     # If the authenticator is currently deactivated, activate it
     if not self.activated:
       self.activate()
+
+    self.set_statusbar(0, "Successfully read {} codes".format(len(iacs)))
+    self.last_errmsg_clear_tstamp = None
 
     # If the list hasn't changed, don't update the data in the liststore
     if len(iacs) == len(self.current_list_data) and all([e[0] == e[1] \
