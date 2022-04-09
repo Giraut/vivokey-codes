@@ -62,6 +62,9 @@ Usage
    the clipboard. The code may be pasted into any application with
    right-click-paste, Ctrl-V or with the middle-click.
 
+   If background reading is enabled, the authenticator's panel automatically
+   appears upon successfully reading new codes.
+
 
 
            ---------------------------------------------------------
