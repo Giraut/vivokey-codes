@@ -997,7 +997,7 @@ class pcsc_oath():
 
         except Exception as e:
           errmsg = "error getting PC/SC resource manager context: {}".format(e)
-          continue
+          break
 
         if r != sc.SCARD_S_SUCCESS:
           release_ctx = True
@@ -1016,7 +1016,7 @@ class pcsc_oath():
       if not all_readers_new:
         self.all_readers = []
         errmsg = "no readers"
-        continue
+        break
 
       # Get the first reader that matches the regex
       if all_readers_new != self.all_readers:
