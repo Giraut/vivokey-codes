@@ -53,7 +53,6 @@ import os
 import sys
 import hmac
 import hashlib
-import argparse
 from time import time
 from struct import pack
 from random import randint
