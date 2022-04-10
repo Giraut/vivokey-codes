@@ -6,10 +6,6 @@
 GTK authenticator to read TOTP codes from a Vivokey OTP applet, display them
 and copy them into the clipboard.
 
-This program uses the Vivokey Manager utility. See:
-
-https://github.com/Giraut/vivokey-manager
-
 
 
 Installation
