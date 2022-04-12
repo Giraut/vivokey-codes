@@ -1042,7 +1042,7 @@ class pcsc_oath():
       try:
         r, hcard, dwActiveProtocol = sc.SCardConnect(self.hcontext,
 						self.reader,
-						sc.SCARD_SHARE_EXCLUSIVE,
+						sc.SCARD_SHARE_SHARED,
 						sc.SCARD_PROTOCOL_T0 | \
 						sc.SCARD_PROTOCOL_T1)
 
