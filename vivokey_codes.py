@@ -1202,7 +1202,7 @@ class pcsc_oath():
 
           # Check that the code has a valid number of digits
           if 6 <= v[0] <= 10:
-            v = str((int.from_bytes(v[1:], "big") & 0x7FFFFFFF) % 10 \
+            v = str((int.from_bytes(v[1:], "big") & 0x7fffffff) % 10 \
 				** v[0]).rjust(v[0], "0")
 
           else:
@@ -1267,7 +1267,7 @@ class pcsc_oath():
 
         # Calculate the Steam code
         offset = tlvs_st[0][1][-1] & 0x0f
-        n = unpack(">I", tlvs_st[0][1][offset + 1 : offset + 5])[0] & 0x7FFFFFFF
+        n = unpack(">I", tlvs_st[0][1][offset + 1 : offset + 5])[0] & 0x7fffffff
         steam_code = ""
         for _ in range(5):
           steam_code += self.STEAM_CODE_CHARSET[n % self.steam_code_charset_len]
