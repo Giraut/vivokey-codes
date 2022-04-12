@@ -857,12 +857,9 @@ class pcsc_oath():
 
 
 
-  def _untlv(self, data, raw = False, do_dict = False):
+  def _untlv(self, data, do_dict = False):
     """Extract TLV values into a list of [tag, value], or a tag_keyed dictionary
     if do_dict is asserted.
-    If raw is asserted, the lengths of the TLVs are checked and the values are
-    returned as-is. If not, the values too are checked and processed depending
-    on certain tag types.
     Returns (None, list or dict) if no error, (errmsg, None) otherwise.
     """
 
@@ -895,47 +892,6 @@ class pcsc_oath():
       if len(v) < l:
         errmsg = "TLV value too short in APDU response"
         break
-
-      # Should we check / process the value?
-      if not raw:
-
-        # Check that the value is valid and process it
-        if t == self.NAME_TAG:
-
-          # Check thet the value is a string
-          try:
-            v = v.decode("ascii")
-
-          except:
-            errmsg = "invalid name record {} in APDU".format(v)
-            break
-
-          # Check that the name tag is properly formatted as "issuer:account",
-          # or "account" without issuer
-          m = re.findall("^((.*):)?([^:]*\S)\s*$", v)
-          if m:
-            v = m[0][1:]
-
-          else:
-            errmsg = "malformed name record {} in APDU".format(v)
-            break
-
-
-        elif t == self.TRUNCATED_TAG:
-
-          # Check that the code record isn't empty
-          if not v:
-            errmsg = "empty code record in APDU".format(v)
-            break
-
-          # Check that the code has a valid number of digits
-          if 6 <= v[0] <= 10:
-            v = str((int.from_bytes(v[1:], "big") & 0x7FFFFFFF) % 10 \
-				** v[0]).rjust(v[0], "0")
-
-          else:
-            errmsg = "malformed code record {} in APDU".format(v)
-            break
 
       # Remove the value from the data
       data = data[l:]
@@ -1078,7 +1034,7 @@ class pcsc_oath():
         errcritical = False
         continue
 
-      errmsg, tlvs = self._untlv(response[:-2], raw = True, do_dict = True)
+      errmsg, tlvs = self._untlv(response[:-2], do_dict = True)
       if errmsg:
         continue
 
@@ -1195,20 +1151,64 @@ class pcsc_oath():
       if errmsg:
         continue
 
-      if len(tlvs) % 2:
-        errmsg = "Malformed APDU response: odd number of TLVs"
-        continue
+      # Make sure we have only received pairs of NAME + TRUNCATED tags and
+      # decode them
+      i = -1
+      for i, tlv in enumerate(tlvs):
 
-      tlv_pairs = [(tlvs[i], tlvs[i + 1]) for i in range(0, len(tlvs), 2)]
-      for p in tlv_pairs:
+        t, v = tlv
 
-        if p[0][0] != self.NAME_TAG or p[1][0] != self.TRUNCATED_TAG:
+        # Check that we have the tag we should have at this position
+        if t != (self.NAME_TAG, self.TRUNCATED_TAG)[i % 2]:
           errmsg = "Malformed APDU response: unexpected tag"
           break
 
-        oath_codes.append(p[0][1] + (p[1][1],))
+        # Decode the name
+        if t == self.NAME_TAG:
+
+          # Check thet the value is a string
+          try:
+            v = v.decode("ascii")
+
+          except:
+            errmsg = "invalid name record {} in APDU".format(v)
+            break
+
+          # Check that the name is properly formatted as "issuer:account",
+          # or "account" without issuer
+          m = re.findall("^((.*):)?([^:]*\S)\s*$", v)
+          if m:
+            name = m[0][1:]
+
+          else:
+            errmsg = "malformed name record {} in APDU".format(v)
+            break
+
+        # Decode the truncated value
+        elif t == self.TRUNCATED_TAG:
+
+          # Check that the code record isn't empty
+          if not v:
+            errmsg = "empty code record in APDU".format(v)
+            break
+
+          # Check that the code has a valid number of digits
+          if 6 <= v[0] <= 10:
+            v = str((int.from_bytes(v[1:], "big") & 0x7FFFFFFF) % 10 \
+				** v[0]).rjust(v[0], "0")
+
+          else:
+            errmsg = "malformed code record {} in APDU".format(v)
+            break
+
+          # Add this issuer + account + code to our list
+          oath_codes.append(name + (v,))
 
       if errmsg:
+        continue
+
+      if not (i % 2):
+        errmsg = "Malformed APDU response: odd number of TLVs"
         continue
 
       # Sort the list of OATH codes by issuer + account
