@@ -1271,7 +1271,7 @@ class pcsc_oath():
         steam_code = ""
         for _ in range(5):
           steam_code += self.STEAM_CODE_CHARSET[n % self.steam_code_charset_len]
-          n //= len(self.STEAM_CODE_CHARSET)
+          n //= self.steam_code_charset_len
 
         # Replace the truncated code with the Steam code
         oath_codes[i][2] = steam_code
