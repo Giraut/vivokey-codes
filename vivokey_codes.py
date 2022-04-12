@@ -14,9 +14,11 @@ Present your Vivokey token to the reader. If the token is passworded, you can
 set the password in the panel.
 
 If a token is read successfully, the accounts and associated TOTP codes it
-returned are displayed in the list. Select one entry to copy the code into the
-clipboard. The code may be pasted into any application with right-click-paste,
-Ctrl-V or with the middle-click.
+returned are displayed in the list. If an account is a Steam account (i.e. the
+issuer is "Steam"), the TOTP code will be a 5-letter Steam code.
+
+Select one entry to copy the code into the clipboard. The code may be pasted
+into any application with right-click-paste, Ctrl-V or with the middle-click.
 
 If background reading is enabled, the authenticator's panel automatically
 appears upon successfully reading new codes.
@@ -43,7 +45,7 @@ proc_title = "vivokey_codes"
 
 sample_issuer_string = "Acme, Inc. (International Foobar Division)"
 sample_account_string = "oleg.mcnoleg@acme-incorporated-international.com"
-sample_code_string = "0123456789"
+sample_code_string = "8888888888"
 
 
 
@@ -54,7 +56,7 @@ import sys
 import hmac
 import hashlib
 from time import time
-from struct import pack
+from struct import pack, unpack
 from random import randint
 import smartcard.scard as sc
 from signal import signal, SIGCHLD
@@ -755,8 +757,10 @@ class pcsc_oath():
 
   INS_VALIDATE = 0xa3
 
+  INS_CALCULATE = 0xa2
   INS_CALCULATE_ALL = 0xa4
-  P2_CALCULATE_ALL_TRUNCATED = 0x01
+  P2_CALCULATE_FULL = 0x00
+  P2_CALCULATE_TRUNCATED = 0x01
 
   INS_SEND_REMAINING = 0xa5
 
@@ -775,13 +779,18 @@ class pcsc_oath():
   NAME_TAG = 0x71
   CHALLENGE_TAG = 0x74
   RESPONSE_TAG = 0x75
+  FULL_TAG = 0x75
   TRUNCATED_TAG = 0x76
+
+  STEAM_CODE_CHARSET = "23456789BCDFGHJKMNPQRTVWXY"
 
 
 
   def __init__(self, oath_aid = DEFAULT_OATH_AID, period = DEFAULT_PERIOD):
     """__init__ method
     """
+
+    self.steam_code_charset_len = len(self.STEAM_CODE_CHARSET)
 
     self.readers_regex = "^.*$"
     self.oath_aid = list(bytes.fromhex(oath_aid))
@@ -1118,10 +1127,9 @@ class pcsc_oath():
       # Request the list of codes
       challenge = pack(">q", int(time() // self.period))
       challenge_tlv = self._tlv(self.CHALLENGE_TAG, challenge)
-
       errmsg, ec, r, response = self._send_apdu(hcard, dwActiveProtocol,
 					[0, self.INS_CALCULATE_ALL, 0,
-					self.P2_CALCULATE_ALL_TRUNCATED,
+					self.P2_CALCULATE_TRUNCATED,
 					len(challenge_tlv)] + challenge_tlv)
 
       if errmsg or r != sc.SCARD_S_SUCCESS:
@@ -1202,13 +1210,73 @@ class pcsc_oath():
             break
 
           # Add this issuer + account + code to our list
-          oath_codes.append(name + (v,))
+          oath_codes.append([name[0], name[1], v])
 
       if errmsg:
         continue
 
       if not (i % 2):
         errmsg = "Malformed APDU response: odd number of TLVs"
+        continue
+
+      # For all Steam accounts, request a new code calculation with full
+      # response, calculate the Steam code then replace the truncated code
+      # obtained earlier with the Steam code
+      for i, name in enumerate([e[1] for e in tlvs if e[0] == self.NAME_TAG]):
+
+        # Is this a Steam account?
+        issuer = oath_codes[i][0]
+        if issuer != "Steam":
+          continue
+
+        # Request a new calculation for this account
+        name_tlv = self._tlv(self.NAME_TAG, name)
+        errmsg, ec, r, response = self._send_apdu(hcard, dwActiveProtocol,
+					[0, self.INS_CALCULATE, 0,
+					self.P2_CALCULATE_FULL,
+					len(name_tlv) + len(challenge_tlv)] + \
+					name_tlv + challenge_tlv)
+
+        if errmsg or r != sc.SCARD_S_SUCCESS:
+          release_ctx = True
+          errmsg = "error transmitting CALCULATE command{}".format(
+			": {}".format(errmsg) if errmsg else "")
+          errcritical = ec
+          continue
+
+        # Did we get a response error?
+        if response[-2:] != [self.SW1_OK, self.SW2_OK]:
+          errmsg = "error {:02X}{:02X} from CALCULATE command".format(
+			response[-2], response[-1])
+          errcritical = False
+          continue
+
+        # Decode the response, which should be a full code response TLV
+        errmsg, tlvs_st = self._untlv(response[:-2], do_dict = False)
+        if errmsg:
+          continue
+
+        if len(tlvs_st) != 1:
+          errmsg = "Malformed APDU response: expected 1 TLV, got {}".\
+			format(len(tlvs_st))
+          break
+
+        if tlvs_st[0][0] != self.FULL_TAG:
+          errmsg = "Malformed APDU response: unexpected tag"
+          break
+
+        # Calculate the Steam code
+        offset = tlvs_st[0][1][-1] & 0x0f
+        n = unpack(">I", tlvs_st[0][1][offset + 1 : offset + 5])[0] & 0x7FFFFFFF
+        steam_code = ""
+        for _ in range(5):
+          steam_code += self.STEAM_CODE_CHARSET[n % self.steam_code_charset_len]
+          n //= len(self.STEAM_CODE_CHARSET)
+
+        # Replace the truncated code with the Steam code
+        oath_codes[i][2] = steam_code
+
+      if errmsg:
         continue
 
       # Sort the list of OATH codes by issuer + account

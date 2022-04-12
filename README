@@ -42,10 +42,12 @@ Usage
    Present your Vivokey token to the reader. If the token is passworded, you
    can set the password in the panel.
 
-   If a token is read successfully, the accounts and associated TOTP codes it
-   returned are displayed in the list. Select one entry to copy the code into
-   the clipboard. The code may be pasted into any application with
-   right-click-paste, Ctrl-V or with the middle-click.
+   If a token is read successfully, the accounts and associated TOTP codes
+   it returned are displayed in the list. If an account is a Steam account
+   (i.e. the issuer is "Steam"), the TOTP code will be a 5-letter Steam code.
+
+   Select one entry to copy the code into the clipboard. The code may be pasted
+   into any application with right-click-paste, Ctrl-V or with the middle-click.
 
    If background reading is enabled, the authenticator's panel automatically
    appears upon successfully reading new codes.
