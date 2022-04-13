@@ -56,7 +56,7 @@ import sys
 import hmac
 import hashlib
 from time import time
-from struct import pack, unpack
+from struct import pack
 from random import randint
 import smartcard.scard as sc
 from signal import signal, SIGCHLD
@@ -759,7 +759,6 @@ class pcsc_oath():
 
   INS_CALCULATE = 0xa2
   INS_CALCULATE_ALL = 0xa4
-  P2_CALCULATE_FULL = 0x00
   P2_CALCULATE_TRUNCATED = 0x01
 
   INS_SEND_REMAINING = 0xa5
@@ -779,7 +778,6 @@ class pcsc_oath():
   NAME_TAG = 0x71
   CHALLENGE_TAG = 0x74
   RESPONSE_TAG = 0x75
-  FULL_TAG = 0x75
   TRUNCATED_TAG = 0x76
 
   STEAM_CODE_CHARSET = "23456789BCDFGHJKMNPQRTVWXY"
@@ -1203,78 +1201,23 @@ class pcsc_oath():
             errmsg = "malformed code record {} in APDU".format(v)
             break
 
-          # Calculate the code
-          v = str((int.from_bytes(v[1:], "big") & 0x7fffffff) % 10 ** v[0]).\
-			rjust(v[0], "0")
+          # Calculate the code and the Steam code
+          n = int.from_bytes(v[1:], "big") & 0x7fffffff
+          code = str(n % 10 ** v[0]).rjust(v[0], "0")
+          stcode = ""
+          for _ in range(5):
+            stcode += self.STEAM_CODE_CHARSET[n % self.steam_code_charset_len]
+            n //= self.steam_code_charset_len
 
-          # Add this issuer + account + code to our list
-          oath_codes.append([name[0], name[1], v])
+          # Add this issuer + account + code or Steam code to our list
+          oath_codes.append([name[0], name[1],
+				stcode if name[0] == "Steam" else code])
 
       if errmsg:
         continue
 
       if not (i % 2):
         errmsg = "Malformed APDU response: odd number of TLVs"
-        continue
-
-      # For all Steam accounts, request a new code calculation with full
-      # response, calculate the Steam code then replace the truncated code
-      # obtained earlier with the Steam code
-      for i, name in enumerate([e[1] for e in tlvs if e[0] == self.NAME_TAG]):
-
-        # Is this a Steam account?
-        issuer = oath_codes[i][0]
-        if issuer != "Steam":
-          continue
-
-        # Request a new calculation for this account
-        name_tlv = self._tlv(self.NAME_TAG, name)
-        errmsg, ec, r, response = self._send_apdu(hcard, dwActiveProtocol,
-					[0, self.INS_CALCULATE, 0,
-					self.P2_CALCULATE_FULL,
-					len(name_tlv) + len(challenge_tlv)] + \
-					name_tlv + challenge_tlv)
-
-        if errmsg or r != sc.SCARD_S_SUCCESS:
-          release_ctx = True
-          errmsg = "error transmitting CALCULATE command{}".format(
-			": {}".format(errmsg) if errmsg else "")
-          errcritical = ec
-          continue
-
-        # Did we get a response error?
-        if response[-2:] != [self.SW1_OK, self.SW2_OK]:
-          errmsg = "error {:02X}{:02X} from CALCULATE command".format(
-			response[-2], response[-1])
-          errcritical = False
-          continue
-
-        # Decode the response, which should be a full code response TLV
-        errmsg, tlvs_st = self._untlv(response[:-2], do_dict = False)
-        if errmsg:
-          continue
-
-        if len(tlvs_st) != 1:
-          errmsg = "Malformed APDU response: expected 1 TLV, got {}".\
-			format(len(tlvs_st))
-          break
-
-        if tlvs_st[0][0] != self.FULL_TAG:
-          errmsg = "Malformed APDU response: unexpected tag"
-          break
-
-        # Calculate the Steam code
-        offset = tlvs_st[0][1][-1] & 0x0f
-        n = unpack(">I", tlvs_st[0][1][offset + 1 : offset + 5])[0] & 0x7fffffff
-        steam_code = ""
-        for _ in range(5):
-          steam_code += self.STEAM_CODE_CHARSET[n % self.steam_code_charset_len]
-          n //= self.steam_code_charset_len
-
-        # Replace the truncated code with the Steam code
-        oath_codes[i][2] = steam_code
-
-      if errmsg:
         continue
 
       # Sort the list of OATH codes by issuer + account
