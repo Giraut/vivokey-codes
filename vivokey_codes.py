@@ -1162,9 +1162,7 @@ class pcsc_oath():
       # Make sure we have only received pairs of NAME + TRUNCATED tags and
       # decode them
       i = -1
-      for i, tlv in enumerate(tlvs):
-
-        t, v = tlv
+      for i, (t, v) in enumerate(tlvs):
 
         # Check that we have the tag we should have at this position
         if t != (self.NAME_TAG, self.TRUNCATED_TAG)[i % 2]:
@@ -1201,13 +1199,13 @@ class pcsc_oath():
             break
 
           # Check that the code has a valid number of digits
-          if 6 <= v[0] <= 10:
-            v = str((int.from_bytes(v[1:], "big") & 0x7fffffff) % 10 \
-				** v[0]).rjust(v[0], "0")
-
-          else:
+          if not 6 <= v[0] <= 10:
             errmsg = "malformed code record {} in APDU".format(v)
             break
+
+          # Calculate the code
+          v = str((int.from_bytes(v[1:], "big") & 0x7fffffff) % 10 ** v[0]).\
+			rjust(v[0], "0")
 
           # Add this issuer + account + code to our list
           oath_codes.append([name[0], name[1], v])
