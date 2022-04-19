@@ -1,17 +1,17 @@
 #!/usr/bin/python3
 """
-GTK authenticator to read TOTP codes from a Vivokey OTP applet, display them
-and copy them into the clipboard.
+GTK authenticator to read TOTP codes from a Vivokey or Yubikey OTP applet,
+display them and copy them into the clipboard.
 
 This program starts minimized in the system tray. Click on the icon then select
 "Get codes", or middle-click on the icon, to start the authenticator's panel.
 
 As soon as the panel comes up, it starts polling the PC/SC reader whose name is
-specified in the Reader field for a Vivokey token to read. When the panel is
-closed, it stops polling the reader.
+specified in the Reader field for a Vivokey or Yubikey NFC token to read.
+When the panel is closed, it stops polling the reader.
 
-Present your Vivokey token to the reader. If the token is passworded, you can
-set the password in the panel.
+Present your Vivokey or Yubikey NFC token to the reader. If the token is
+passworded, you can set the password in the panel.
 
 If a token is read successfully, the accounts and associated TOTP codes it
 returned are displayed in the list. If an account is a Steam account (i.e. the
@@ -292,7 +292,7 @@ class authenticator(Gtk.Window):
 
     # Create the text entry for the OATH password, with a label and a "remember"
     # check button
-    self.oath_pwd_entry_label = Gtk.Label(label = "Vivokey password:")
+    self.oath_pwd_entry_label = Gtk.Label(label = "Password:")
 
     self.oath_pwd_entry = Gtk.Entry()
     self.oath_pwd_entry.set_placeholder_text("None")
@@ -748,7 +748,9 @@ class pcsc_oath():
   """
 
   # Defines
-  DEFAULT_OATH_AID = "a0000007470061fc54d5"	# Vivokey OTP applet
+  DEFAULT_OATH_AIDS = ("a0000007470061fc54d5", "a0000005272101") # Vivokey, then
+								 # Yubikey OTP
+								 # applets
   DEFAULT_PERIOD = 30 #s
 
   INS_SELECT = 0xa4
@@ -766,12 +768,13 @@ class pcsc_oath():
   SW1_OK = 0x90
   SW2_OK = 0x00
 
-  SW1_AUTH_ERROR = 0x69
+  SW1_NOT_ALLOWED = 0x69
   SW2_AUTH_REQUIRED = 0x82
   SW2_AUTH_FAILED = 0x84
 
-  SW1_WRONG_SYNTAX = 0x6a
+  SW1_WRONG_PARAMS = 0x6a
   SW2_WRONG_SYNTAX = 0x80
+  SW2_NOT_FOUND = 0x82
 
   SW1_MORE_DATA = 0x61
 
@@ -784,14 +787,14 @@ class pcsc_oath():
 
 
 
-  def __init__(self, oath_aid = DEFAULT_OATH_AID, period = DEFAULT_PERIOD):
+  def __init__(self, oath_aids = DEFAULT_OATH_AIDS, period = DEFAULT_PERIOD):
     """__init__ method
     """
 
     self.steam_code_charset_len = len(self.STEAM_CODE_CHARSET)
 
     self.readers_regex = "^.*$"
-    self.oath_aid = list(bytes.fromhex(oath_aid))
+    self.oath_aids = [list(bytes.fromhex(aid)) for aid in oath_aids]
     self.period = period
 
     self.all_readers = []
@@ -1021,26 +1024,40 @@ class pcsc_oath():
       # Whatever happens next, try to disconnect the card before returning
       disconnect_card = True
 
-      # Select the OATH AID
-      errmsg, ec, r, response = self._send_apdu(hcard, dwActiveProtocol,
+      # Try each OATH AID in turn
+      for aid in self.oath_aids:
+
+        # Select the OATH AID
+        errmsg, ec, r, response = self._send_apdu(hcard, dwActiveProtocol,
 					[0, self.INS_SELECT, self.P1_SELECT,
-					self.P2_SELECT,
-					len(self.oath_aid)] + self.oath_aid)
+					self.P2_SELECT, len(aid)] + aid)
 
-      if errmsg or r != sc.SCARD_S_SUCCESS:
-        release_ctx = True
-        errmsg = "error transmitting OATH AID selection command{}".format(
+        if errmsg or r != sc.SCARD_S_SUCCESS:
+          release_ctx = True
+          errmsg = "error transmitting OATH AID selection command{}".format(
 			": {}".format(errmsg) if errmsg else "")
-        errcritical = ec
-        continue
+          errcritical = ec
+          break
 
-      # Did we get a response error?
-      if response[-2:] != [self.SW1_OK, self.SW2_OK]:
-        errmsg = "error {:02X}{:02X} from OATH AID selection command".format(
+        # Did we get OK?
+        if response[-2:] == [self.SW1_OK, self.SW2_OK]:
+          break
+
+        # Did we get an error other than NOT_FOUND?
+        if response[-2:] != [self.SW1_WRONG_PARAMS, self.SW2_NOT_FOUND]:
+          errmsg = "error {:02X}{:02X} from OATH AID selection command".format(
 			response[-2], response[-1])
+          errcritical = False
+          break
+
+        # Try the next AID
+        errmsg = "OATH application not found".format(response[-2], response[-1])
         errcritical = False
+
+      if errmsg:
         continue
 
+      # Decode the TLVs in the response
       errmsg, tlvs = self._untlv(response[:-2], do_dict = True)
       if errmsg:
         continue
@@ -1088,8 +1105,8 @@ class pcsc_oath():
         if response[-2:] != [self.SW1_OK, self.SW2_OK]:
 
           # Did the authentication fail?
-          if response[-2:] == [self.SW1_AUTH_ERROR, self.SW2_AUTH_FAILED] or \
-		response[-2:] == [self.SW1_WRONG_SYNTAX, self.SW2_WRONG_SYNTAX]:
+          if response[-2:] == [self.SW1_NOT_ALLOWED, self.SW2_AUTH_FAILED] or \
+		response[-2:] == [self.SW1_WRONG_PARAMS, self.SW2_WRONG_SYNTAX]:
             errmsg = "authentication failed"
 
           else:
@@ -1141,7 +1158,7 @@ class pcsc_oath():
       if response[-2:] != [self.SW1_OK, self.SW2_OK]:
 
         # Is authentication required?
-        if response[-2:] == [self.SW1_AUTH_ERROR, self.SW2_AUTH_REQUIRED]:
+        if response[-2:] == [self.SW1_NOT_ALLOWED, self.SW2_AUTH_REQUIRED]:
           errmsg = "authentication required"
 
         else:

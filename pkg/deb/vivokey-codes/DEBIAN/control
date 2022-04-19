@@ -1,7 +1,7 @@
 Package: vivokey-codes
 Version:
 Maintainer: Rosco <roskis@runbox.com>
-Description: GTK Authenticator to read TOTP codes from a Vivokey OTP applet, display them and copy them into the clipboard.
+Description: GTK Authenticator to read TOTP codes from a Vivokey or Yubikey OTP applet, display them and copy them into the clipboard.
 Homepage: https://github.com/Giraut/vivokey-codes
 Architecture: all
 Depends: python3 (>=3.5), python3-gi, python3-setproctitle, python3-cryptography, python3-pyscard, pcscd

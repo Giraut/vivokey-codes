@@ -3,8 +3,8 @@
                                     v0.3.1
 
 
-GTK authenticator to read TOTP codes from a Vivokey OTP applet, display them
-and copy them into the clipboard.
+GTK authenticator to read TOTP codes from a Vivokey or Yubikey OTP applet,
+display them and copy them into the clipboard.
 
 
 
@@ -36,11 +36,11 @@ Usage
    panel.
 
    As soon as the panel comes up, it starts polling the PC/SC reader whose name
-   is specified in the Reader field for a Vivokey token to read. When the panel
-   is closed, it stops polling the reader.
+   is specified in the Reader field for a Vivokey or Yubikey NFC token to read.
+   When the panel is closed, it stops polling the reader.
 
-   Present your Vivokey token to the reader. If the token is passworded, you
-   can set the password in the panel.
+   Present your Vivokey or Yubikey NFC token to the reader. If the token is
+   passworded, you can set the password in the panel.
 
    If a token is read successfully, the accounts and associated TOTP codes
    it returned are displayed in the list. If an account is a Steam account
