@@ -474,9 +474,18 @@ class authenticator(Gtk.Window):
     """Tests if the issuer or the account in the row contain the filter text
     """
 
-    return not self.current_filter or \
-	re.search(self.current_filter, tree_model[i][0], re.I) is not None or \
-	re.search(self.current_filter, tree_model[i][1], re.I) is not None
+    if not self.current_filter:
+      False
+
+    try:
+      for j in range(2):
+        if re.search(self.current_filter, tree_model[i][j], re.I) is not None:
+          return True
+
+    except:
+      pass
+
+    return False
 
 
 
@@ -987,13 +996,18 @@ class pcsc_oath():
       if all_readers_new != self.all_readers:
         self.all_readers = all_readers_new
 
-        for r in self.all_readers:
-          if re.match(self.readers_regex, r, re.I):
-            self.reader = r
-            break
+        try:
+          for r in self.all_readers:
+            if re.match(self.readers_regex, r, re.I):
+              self.reader = r
+              break
 
-        else:
+          else:
+            self.reader = None
+
+        except:
           self.reader = None
+
 
       # Do we have a reader to read from?
       if self.reader is None:
