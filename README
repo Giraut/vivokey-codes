@@ -1,6 +1,6 @@
                                  Vivokey Codes
                                  -------------
-                                    v0.4.0
+                                    v0.4.1
 
 
 GTK authenticator to read TOTP codes from a Vivokey or Yubikey OTP applet,
