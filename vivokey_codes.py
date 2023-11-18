@@ -31,7 +31,6 @@ when a code is selected.
 default_reader = "0"
 config_file = "~/.vivokey_codes.cfg"
 
-codes_deprecation_timeout = 30 #s
 auto_close_idle_window_timeout = 120 #s
 auto_close_idle_window_countdown = 30 #s
 error_message_clear_timeout = 3 #s
@@ -195,7 +194,6 @@ class authenticator(Gtk.Window):
     self.stop_timeout_func = False
 
     self.current_list_data = []
-    self.codes_deprecation_tstamp = None
 
     self.current_filter = ""
     self.statusbar_messages = [None] * 3
@@ -425,7 +423,6 @@ class authenticator(Gtk.Window):
     # Clear the liststore and the status bar, so the user is presented with a
     # fresh screen
     self.current_list_data = []
-    self.codes_deprecation_tstamp = None
 
     self.liststore.clear()
     for i in range(len(self.statusbar_messages)):
@@ -518,7 +515,7 @@ class authenticator(Gtk.Window):
 
 
 
-  def set_list(self, list_data, codes_deprecated = False):
+  def set_list(self, list_data, now):
     """Set the data in the liststore. If codes_deprecated if asserted, the
     codes are shown in light, bold otherwise.
     """
@@ -531,10 +528,9 @@ class authenticator(Gtk.Window):
     self.liststore.clear()
 
     # Fill the list with the new data
-    for i, a, c in list_data:
+    for i, a, c, t in list_data:
       self.liststore.append([i, a, '<span weight="{}">{}</span>'.
-				format("light" if codes_deprecated else "bold",
-					c)])
+				format("light" if now > t else "bold", c)])
 
     # Reconnect the treeview to the "changed" signal
     self.treeview_changed_handler_id = self.treeview_select.connect("changed",
@@ -688,11 +684,15 @@ class authenticator(Gtk.Window):
       else:
         self.set_statusbar(2, None)
 
-      # Are the codes currently displayed in the list deprecated?
-      if self.codes_deprecation_tstamp is not None and \
-		now >= self.codes_deprecation_tstamp:
-        self.set_list(self.current_list_data, codes_deprecated = True)
-        self.codes_deprecation_tstamp = None
+      # If any of the codes currently displayed in the list becomes deprecated,
+      # update the liststore
+      update_liststore = False
+      for i, iac in enumerate(self.current_list_data):
+        if iac[3] >= 0 and now > iac[3]:
+          iac[3] = -1
+          update_liststore = True
+      if update_liststore:
+        self.set_list(self.current_list_data, now)
 
     # Try to get read results from the codes pipe
     rctr = None
@@ -733,19 +733,38 @@ class authenticator(Gtk.Window):
     self.set_statusbar(0, "Successfully read {} codes".format(len(iacs)))
     self.last_errmsg_clear_tstamp = None
 
-    # If the list hasn't changed, don't update the data in the liststore
-    if len(iacs) == len(self.current_list_data) and all([e[0] == e[1] \
-				for e in zip(iacs, self.current_list_data)]):
-      return True
+    update_liststore = False
 
-    # Update the code deprecation timeout
-    self.codes_deprecation_tstamp = time() + codes_deprecation_timeout
+    # If the new list has a different length than the current list, replace the
+    # current list and update the liststore
+    if len(iacs) != len(self.current_list_data):
+      self.current_list_data = iacs
+      update_liststore = True
 
-    # Replace the data in the liststore with the new data
-    self.current_list_data = iacs
-    self.set_list(self.current_list_data, codes_deprecated = False)
+    # Compare the current list with the current list
+    else:
+      for i, iac in enumerate(iacs):
 
-    self.refresh_autoclose_tstamp()
+        # If any of the new list's accounts has changed, replace the current
+        # list and update the liststore
+        if iac[0] != self.current_list_data[i][0] or \
+		iac[1] != self.current_list_data[i][1]:
+          self.current_list_data = iacs
+          update_liststore = True
+          break
+
+        # If any of the new list's code has changed, replace the corresponding
+        # account's code and timeout in the current list and update the
+        # liststore
+        if iac[2] != self.current_list_data[i][2]:
+          self.current_list_data[i][2]= iac[2]
+          self.current_list_data[i][3]= iac[3]
+          update_liststore = True
+
+    # Refresh the liststore and the autoclose timestamp if needed
+    if update_liststore:
+      self.set_list(self.current_list_data, now)
+      self.refresh_autoclose_tstamp()
 
     return True
 
@@ -796,7 +815,8 @@ class pcsc_oath():
 
 
 
-  def __init__(self, oath_aids = DEFAULT_OATH_AIDS, period = DEFAULT_PERIOD):
+  def __init__(self, oath_aids = DEFAULT_OATH_AIDS,
+		default_period = DEFAULT_PERIOD):
     """__init__ method
     """
 
@@ -804,7 +824,7 @@ class pcsc_oath():
 
     self.readers_regex = "^.*$"
     self.oath_aids = [list(bytes.fromhex(aid)) for aid in oath_aids]
-    self.period = period
+    self.default_period = default_period
 
     self.all_readers = []
     self.hcontext = None
@@ -1153,96 +1173,142 @@ class pcsc_oath():
           errmsg = "password required"
           continue
 
-      # Request the list of codes
-      challenge = pack(">q", int(time() // self.period))
-      challenge_tlv = self._tlv(self.CHALLENGE_TAG, challenge)
-      errmsg, ec, r, response = self._send_apdu(hcard, dwActiveProtocol,
+      now = time()
+
+      # Request the list of codes with a different challenge for the different
+      # periods set in the different accounts. Start with the default period.
+      periods_to_request = [self.default_period]
+      periods_requested = []
+
+      while periods_to_request and \
+		periods_to_request[0] not in periods_requested:
+
+        # Get the period to request and remove it from the list of periods to
+        # request and add it to the list of periods requested
+        period = periods_to_request.pop(0)
+        periods_requested.append(period)
+
+        challenge = pack(">q", int(time() // period))
+        challenge_tlv = self._tlv(self.CHALLENGE_TAG, challenge)
+        errmsg, ec, r, response = self._send_apdu(hcard, dwActiveProtocol,
 					[0, self.INS_CALCULATE_ALL, 0,
 					self.P2_CALCULATE_TRUNCATED,
 					len(challenge_tlv)] + challenge_tlv)
 
-      if errmsg or r != sc.SCARD_S_SUCCESS:
-        release_ctx = True
-        errmsg = "error transmitting CALCULATE_ALL command{}".format(
+        if errmsg or r != sc.SCARD_S_SUCCESS:
+          release_ctx = True
+          errmsg = "error transmitting CALCULATE_ALL command{}".format(
 			": {}".format(errmsg) if errmsg else "")
-        errcritical = ec
-        continue
-
-      # Did we get a response error?
-      if response[-2:] != [self.SW1_OK, self.SW2_OK]:
-
-        # Is authentication required?
-        if response[-2:] == [self.SW1_NOT_ALLOWED, self.SW2_AUTH_REQUIRED]:
-          errmsg = "authentication required"
-
-        else:
-          errmsg = "error {:02X}{:02X} from CALCULATE_ALL command".format(
-			response[-2], response[-1])
-          errcritical = False
-
-        continue
-
-      # Decode the response, which should be a sequence of name and truncated
-      # response TLV pairs
-      errmsg, tlvs = self._untlv(response[:-2], do_dict = False)
-      if errmsg:
-        continue
-
-      # Make sure we have only received pairs of NAME + TRUNCATED tags and
-      # decode them
-      i = -1
-      for i, (t, v) in enumerate(tlvs):
-
-        # Check that we have the tag we should have at this position
-        if t != (self.NAME_TAG, self.TRUNCATED_TAG)[i % 2]:
-          errmsg = "Malformed APDU response: unexpected tag"
+          errcritical = ec
           break
 
-        # Decode the name
-        if t == self.NAME_TAG:
+        # Did we get a response error?
+        if response[-2:] != [self.SW1_OK, self.SW2_OK]:
 
-          # Check thet the value is a string
-          try:
-            v = v.decode("ascii")
-
-          except:
-            errmsg = "invalid name record {} in APDU".format(v)
-            break
-
-          # Check that the name is properly formatted as "issuer:account",
-          # or "account" without issuer
-          m = re.findall("^((.*):)?([^:]*\S)\s*$", v)
-          if m:
-            name = m[0][1:]
+          # Is authentication required?
+          if response[-2:] == [self.SW1_NOT_ALLOWED, self.SW2_AUTH_REQUIRED]:
+            errmsg = "authentication required"
 
           else:
-            errmsg = "malformed name record {} in APDU".format(v)
+            errmsg = "error {:02X}{:02X} from CALCULATE_ALL command".format(
+			response[-2], response[-1])
+            errcritical = False
+
+          break
+
+        # Decode the response, which should be a sequence of name and truncated
+        # response TLV pairs
+        errmsg, tlvs = self._untlv(response[:-2], do_dict = False)
+        if errmsg:
+          break
+
+        # Make sure we have only received pairs of NAME + TRUNCATED tags and
+        # decode them
+        i = -1
+        for i, (t, v) in enumerate(tlvs):
+
+          # Check that we have the tag we should have at this position
+          if t != (self.NAME_TAG, self.TRUNCATED_TAG)[i % 2]:
+            errmsg = "Malformed APDU response: unexpected tag"
             break
 
-        # Decode the truncated value
-        elif t == self.TRUNCATED_TAG:
+          # Decode the name
+          if t == self.NAME_TAG:
 
-          # Check that the code record isn't empty
-          if not v:
-            errmsg = "empty code record in APDU".format(v)
-            break
+            # Check thet the value is a string
+            try:
+              v = v.decode("ascii")
 
-          # Check that the code has a valid number of digits
-          if not 6 <= v[0] <= 10:
-            errmsg = "malformed code record {} in APDU".format(v)
-            break
+            except:
+              errmsg = "invalid name record {} in APDU".format(v)
+              break
 
-          # Calculate the code and the Steam code
-          n = int.from_bytes(v[1:], "big") & 0x7fffffff
-          code = str(n % 10 ** v[0]).rjust(v[0], "0")
-          stcode = ""
-          for _ in range(5):
-            stcode += self.STEAM_CODE_CHARSET[n % self.steam_code_charset_len]
-            n //= self.steam_code_charset_len
+            # Check that the name is properly formatted as "issuer:account",
+            # or "account" without issuer
+            m = re.findall("^((.*):)?([^:]*\S)\s*$", v)
+            if m:
+              account, issuer = m[0][1:]
 
-          # Add this issuer + account + code or Steam code to our list
-          oath_codes.append([name[0], name[1],
-				stcode if name[0] == "Steam" else code])
+              # Check if the account starts with an explicit period in the form
+              # of "period/account". If not, use the default period.
+              m = re.match("^([0-9]+)/(.*)$", account)
+              if m:
+                account_period = int(m[1])
+                account = m[2]
+              else:
+                account_period = self.default_period
+
+              # Is the account's period different from the period currently
+              # processed?
+              if account_period != period:
+
+                # If the period hasn't been requested yet, add it to the list of
+                # periods to request
+                if account_period not in periods_requested:
+                  if account_period not in periods_to_request:
+                    periods_to_request.append(account_period)
+
+              name = (account, issuer)
+
+            else:
+              errmsg = "malformed name record {} in APDU".format(v)
+              break
+
+          # Decode the truncated value
+          elif t == self.TRUNCATED_TAG:
+
+            # If the account's period is different from the period currently
+            # processed, don't add it to our list and move on to the next
+            # account
+            if account_period != period:
+              continue
+
+            # Check that the code record isn't empty
+            if not v:
+              errmsg = "empty code record in APDU".format(v)
+              break
+
+            # Check that the code has a valid number of digits
+            if not 6 <= v[0] <= 10:
+              errmsg = "malformed code record {} in APDU".format(v)
+              break
+
+            # Calculate the code and the Steam code
+            n = int.from_bytes(v[1:], "big") & 0x7fffffff
+            code = str(n % 10 ** v[0]).rjust(v[0], "0")
+            stcode = ""
+            for _ in range(5):
+              stcode += self.STEAM_CODE_CHARSET[n % self.steam_code_charset_len]
+              n //= self.steam_code_charset_len
+
+            # Add this issuer + account + code or Steam code + deprecation
+            # timestamp to our list
+            oath_codes.append([name[0], name[1],
+				stcode if name[0] == "Steam" else code,
+				now + period])
+
+        if errmsg:
+          break
 
       if errmsg:
         continue
@@ -1315,7 +1381,7 @@ def sigchld_handler(sig, fname):
 
 
 
-### Mxin routine
+### Main routine
 def main():
 
   global sigchld_watch_p_in
