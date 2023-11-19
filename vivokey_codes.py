@@ -45,6 +45,7 @@ proc_title = "vivokey_codes"
 sample_issuer_string = "Acme, Inc. (International Foobar Division)"
 sample_account_string = "oleg.mcnoleg@acme-incorporated-international.com"
 sample_code_string = "8888888888"
+sample_code_expires = "99 s "
 
 
 
@@ -113,15 +114,15 @@ class tray_item():
     # Create and set the app indicator's menu
     self.menu = Gtk.Menu()
 
-    self.activate_authenticator = Gtk.MenuItem(label = 'Get codes')
-    self.activate_authenticator.connect('activate', self.auth.activate)
+    self.activate_authenticator = Gtk.MenuItem(label = "Get codes")
+    self.activate_authenticator.connect("activate", self.auth.activate)
     self.menu.append(self.activate_authenticator)
 
     self.separator = Gtk.SeparatorMenuItem()
     self.menu.append(self.separator)
 
-    self.exit = Gtk.MenuItem(label = 'Exit')
-    self.exit.connect('activate', Gtk.main_quit)
+    self.exit = Gtk.MenuItem(label = "Exit")
+    self.exit.connect("activate", Gtk.main_quit)
     self.menu.append(self.exit)
 
     self.ind.set_menu(self.menu)
@@ -212,7 +213,7 @@ class authenticator(Gtk.Window):
     self.set_border_width(10)
 
     # Create the liststore model for the list of accounts / codes
-    self.liststore = Gtk.ListStore(str, str, str)
+    self.liststore = Gtk.ListStore(str, str, str, str)
 
     # Create the filter, feeding it with the liststore model
     self.filter = self.liststore.filter_new()
@@ -232,19 +233,24 @@ class authenticator(Gtk.Window):
     self.renderer.set_fixed_height_from_font(1)
 
     # Calculate the size in pixels of a typical issuer, account and code
-    text_widths = [0, 0, 0]
+    text_widths = [0, 0, 0, 0]
     for i, s in enumerate([sample_issuer_string,
 				sample_account_string,
-				sample_code_string]):
-      pango = self.treeview.create_pango_layout(s)
+				sample_code_string,
+				sample_code_expires]):
+      pango = self.treeview.create_pango_layout("#" + s)
       text_widths[i], text_height = pango.get_pixel_size()
 
-    for i, column_title in enumerate(["Issuer", "Account", "Code"]):
-      if i < 2:
-        column = Gtk.TreeViewColumn(column_title, self.renderer, text = i)
-      else:
-        column = Gtk.TreeViewColumn(column_title, self.renderer, markup = i)
-
+    # Create the columns
+    for i, align, column_title, t in [(0, 0.0, "Issuer", "text"),
+					(1, 0.0, "Account", "text"),
+					(2, 0.0, "Code", "markup"),
+					(3, 1.0, "Exp.", "text")]:
+      kwargs = {t: i}
+      column = Gtk.TreeViewColumn(column_title,
+					Gtk.CellRendererText(xalign = align,
+								yalign = 0.5),
+					**kwargs)
       column.set_min_width(text_widths[i])
       column.set_expand(True)
       self.treeview.append_column(column)
@@ -423,8 +429,7 @@ class authenticator(Gtk.Window):
     # Clear the liststore and the status bar, so the user is presented with a
     # fresh screen
     self.current_list_data = []
-
-    self.liststore.clear()
+    self.set_list(self.current_list_data)
     for i in range(len(self.statusbar_messages)):
       self.set_statusbar(i, None)
 
@@ -515,7 +520,7 @@ class authenticator(Gtk.Window):
 
 
 
-  def set_list(self, list_data, now):
+  def set_list(self, list_data):
     """Set the data in the liststore. If codes_deprecated if asserted, the
     codes are shown in light, bold otherwise.
     """
@@ -528,9 +533,10 @@ class authenticator(Gtk.Window):
     self.liststore.clear()
 
     # Fill the list with the new data
-    for i, a, c, t in list_data:
+    for i, a, c, _, v in list_data:
       self.liststore.append([i, a, '<span weight="{}">{}</span>'.
-				format("light" if now > t else "bold", c)])
+				format("light" if v <= 0 else "bold", c),
+				"" if v <= 0 else "{} s ".format(v)])
 
     # Reconnect the treeview to the "changed" signal
     self.treeview_changed_handler_id = self.treeview_select.connect("changed",
@@ -579,7 +585,7 @@ class authenticator(Gtk.Window):
     # Do we have a selection?
     if i is not None:
 
-      issuer, account, code = tree_model[i]
+      issuer, account, code, _ = tree_model[i]
 
       # Strip the markup from the code
       code = re.sub("<.*?>", "", code)
@@ -684,15 +690,18 @@ class authenticator(Gtk.Window):
       else:
         self.set_statusbar(2, None)
 
-      # If any of the codes currently displayed in the list becomes deprecated,
-      # update the liststore
+      # If any of the codes currently displayed in the list becomes deprecated
+      # or any expiry time changes update the liststore
       update_liststore = False
       for i, iac in enumerate(self.current_list_data):
-        if iac[3] >= 0 and now > iac[3]:
-          iac[3] = -1
-          update_liststore = True
+        if iac[4] >= 0:
+          new_exp = int(iac[3] - now)
+          if iac[4] != new_exp:
+            iac[4] = new_exp
+            update_liststore = True
+
       if update_liststore:
-        self.set_list(self.current_list_data, now)
+        self.set_list(self.current_list_data)
 
     # Try to get read results from the codes pipe
     rctr = None
@@ -753,17 +762,19 @@ class authenticator(Gtk.Window):
           update_liststore = True
           break
 
-        # If any of the new list's code has changed, replace the corresponding
-        # account's code and timeout in the current list and update the
-        # liststore
-        if iac[2] != self.current_list_data[i][2]:
+        # If any of the new list's code or timeout timestamp has changed,
+        # replace the corresponding account's code, timeout timestamp and
+        # validity time in the current list and update the liststore
+        if iac[2] != self.current_list_data[i][2] or \
+		iac[3] != self.current_list_data[i][3]:
           self.current_list_data[i][2]= iac[2]
           self.current_list_data[i][3]= iac[3]
+          self.current_list_data[i][4]= iac[4]
           update_liststore = True
 
     # Refresh the liststore and the autoclose timestamp if needed
     if update_liststore:
-      self.set_list(self.current_list_data, now)
+      self.set_list(self.current_list_data)
       self.refresh_autoclose_tstamp()
 
     return True
@@ -1173,8 +1184,6 @@ class pcsc_oath():
           errmsg = "password required"
           continue
 
-      now = time()
-
       # Request the list of codes with a different challenge for the different
       # periods set in the different accounts. Start with the default period.
       periods_to_request = [self.default_period]
@@ -1188,7 +1197,9 @@ class pcsc_oath():
         period = periods_to_request.pop(0)
         periods_requested.append(period)
 
-        challenge = pack(">q", int(time() // period))
+        now = time()
+
+        challenge = pack(">q", int(now // period))
         challenge_tlv = self._tlv(self.CHALLENGE_TAG, challenge)
         errmsg, ec, r, response = self._send_apdu(hcard, dwActiveProtocol,
 					[0, self.INS_CALCULATE_ALL, 0,
@@ -1302,10 +1313,12 @@ class pcsc_oath():
               n //= self.steam_code_charset_len
 
             # Add this issuer + account + code or Steam code + deprecation
-            # timestamp to our list
+            # timestamp + validity time remaining to our list
+            deprecation_tstamp = (int(now // period) + 1) * period
             oath_codes.append([name[0], name[1],
 				stcode if name[0] == "Steam" else code,
-				now + period])
+				deprecation_tstamp,
+				int(deprecation_tstamp - now)])
 
         if errmsg:
           break
