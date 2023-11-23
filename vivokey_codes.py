@@ -529,14 +529,29 @@ class authenticator(Gtk.Window):
     if self.treeview_changed_handler_id is not None:
       self.treeview_select.disconnect(self.treeview_changed_handler_id)
 
-    # Clear the list
-    self.liststore.clear()
-
-    # Fill the list with the new data
-    for i, a, c, _, v in list_data:
-      self.liststore.append([i, a, '<span weight="{}">{}</span>'.
+    # Update or fill the list with the new data
+    len_liststore = len(self.liststore)
+    len_list_data = len(list_data)
+    li = -1
+    for li in range(len_liststore):
+      if li >= len_list_data:
+        while li < len_liststore:
+          self.liststore.remove(self.liststore[li].iter)
+          len_liststore -= 1
+        break
+      i, a, c, _, v = list_data[li]
+      self.liststore[li][0] = i
+      self.liststore[li][1] = a
+      self.liststore[li][2] = '<span weight="{}">{}</span>'.\
+				format("light" if v <= 0 else "bold", c)
+      self.liststore[li][3] = "" if v <= 0 else "{} s ".format(v)
+    else:
+      for li in range(li + 1, len_list_data):
+        i, a, c, _, v = list_data[li]
+        self.liststore.append([i, a, '<span weight="{}">{}</span>'.
 				format("light" if v <= 0 else "bold", c),
 				"" if v <= 0 else "{} s ".format(v)])
+
 
     # Reconnect the treeview to the "changed" signal
     self.treeview_changed_handler_id = self.treeview_select.connect("changed",
