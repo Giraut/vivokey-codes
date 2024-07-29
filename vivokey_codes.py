@@ -1271,7 +1271,7 @@ class pcsc_oath():
 
             # Check that the name is properly formatted as "issuer:account",
             # or "account" without issuer
-            m = re.findall("^((.*):)?([^:]*\S)\s*$", v)
+            m = re.findall(r"^((.*):)?([^:]*\S)\s*$", v)
             if m:
               account, issuer = m[0][1:]
 
