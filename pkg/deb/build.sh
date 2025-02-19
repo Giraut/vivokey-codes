@@ -5,7 +5,7 @@ BUILDSCRIPTPATH=$(realpath "$0")
 BUILDSCRIPTDIR=$(dirname ${BUILDSCRIPTPATH})
 SRC=$(realpath ${BUILDSCRIPTDIR}/../..)
 PKGSRC=${BUILDSCRIPTDIR}/vivokey-codes
-VERSION=$(grep -E "^ +v[0-9]+\.[0-9]+\.[0-9]+ *$" ${SRC}/README | sed -E 's/[ v]*//')
+VERSION=$(awk 'match($0, /^### Version +([0-9]+\.[0-9]+\.[0-9])+ *$/, m) {print m[1]}' ${SRC}/README.md)
 PKGBUILD=${PKGSRC}-${VERSION}-0_all
 PKG=${PKGBUILD}.deb
 
@@ -20,7 +20,7 @@ mkdir -p ${PKGBUILD}/etc/xdg/autostart
 mkdir -p ${PKGBUILD}/usr/share/applications
 
 # Populate the package build directory with the source files
-install -m 644 ${SRC}/README ${PKGBUILD}/usr/share/doc/vivokey-codes
+install -m 644 ${SRC}/README.md ${PKGBUILD}/usr/share/doc/vivokey-codes
 install -m 644 ${SRC}/LICENSE ${PKGBUILD}/usr/share/doc/vivokey-codes
 
 install -m 755 ${SRC}/vivokey_codes.py ${PKGBUILD}/usr/bin/vivokey_codes
