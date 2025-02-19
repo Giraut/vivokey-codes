@@ -69,10 +69,12 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, Gdk, GLib
 
-gi.require_version("AppIndicator3", "0.1")
-from gi.repository import AppIndicator3
-
-
+try:
+  gi.require_version("AppIndicator3", "0.1")
+  from gi.repository import AppIndicator3
+except:
+  gi.require_version("AyatanaAppIndicator3", "0.1")
+  from gi.repository import AyatanaAppIndicator3 as AppIndicator3
 
 ### Globals
 sigchld_watch_p_in = None
