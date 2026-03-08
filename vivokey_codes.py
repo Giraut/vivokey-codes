@@ -1407,7 +1407,15 @@ def sigchld_handler(sig, fname):
 
   global sigchld_watch_p_in
 
-  sigchld_watch_p_in.send("\n")
+  while True:
+    try:
+      pid, status = os.waitpid(-1, os.WNOHANG)
+      if pid != 0:
+        sigchld_watch_p_in.send("\n")
+      break
+    except:
+      sigchld_watch_p_in.send("\n")
+      break
 
 
 
