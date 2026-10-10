@@ -61,6 +61,7 @@ from random import randint
 import smartcard.scard as sc
 from signal import signal, SIGCHLD
 from setproctitle import setproctitle
+import multiprocessing
 from multiprocessing import Process, Queue, Pipe
 from queue import Empty
 
@@ -1423,6 +1424,9 @@ def sigchld_handler(sig, fname):
 def main():
 
   global sigchld_watch_p_in
+
+  multiprocessing.set_start_method("fork")	# The forkserver default in
+						# Python >=3.14 creates problems
 
   # Create a pipe to signal the death of the codes reader process to the Gtk
   # program and install the SIGCHLD handler
